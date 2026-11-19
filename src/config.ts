@@ -6,6 +6,7 @@ import type { ProjectMemoryConfig, RoleModelConfig, SelectorModelConfig } from "
 export const DEFAULT_CONFIG: ProjectMemoryConfig = {
 	enabled: true,
 	autoMemoryDirectory: null,
+	useProjectMemory: false,
 	shellPath: null,
 	models: {
 		selector: { model: "inherit", thinkingLevel: "off", maxTokens: 512, structuredOutput: true },
@@ -92,6 +93,7 @@ export function parseConfig(value: unknown): ProjectMemoryConfig {
 	return {
 		enabled: boolean(raw.enabled, DEFAULT_CONFIG.enabled),
 		autoMemoryDirectory: optionalString(raw.autoMemoryDirectory),
+		useProjectMemory: boolean(raw.useProjectMemory, DEFAULT_CONFIG.useProjectMemory),
 		shellPath: optionalString(raw.shellPath),
 		models: {
 			selector: selectorConfig(models.selector, DEFAULT_CONFIG.models.selector),

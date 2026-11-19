@@ -33,6 +33,10 @@ If the environment variable `PI_CODING_AGENT_DIR` is set, `getAgentDir()` return
   - Each field is validated independently. A field falls back to its built-in default only when it is missing, has the wrong type, has an invalid format, or is outside the allowed integer range. Other valid sibling fields in the same object are not affected. Unknown extra fields are ignored.
 
 ### 3. Effective scope of config reload (`/memory reload-config`)
+#### `useProjectMemory`
+
+- **Type**: `boolean`, default `false`.
+- **Role**: When `true`, instructs the extension to anchor memory storage to the `.pi/memory` directory within the project's canonical root (as determined by Git or the `realpath(cwd)` fallback). This mode facilitates sharing memory across linked Git worktrees. Enabling this takes effect at the next session start.
 
 When you run `/memory reload-config`:
 

@@ -875,7 +875,7 @@ export default function projectMemoryExtension(pi: ExtensionAPI) {
 }
 
 async function initializeRuntimePaths(ctx: ExtensionContext, config: ProjectMemoryConfig): Promise<ProjectPaths> {
-	const paths = await resolveProjectPaths(ctx.cwd, config.autoMemoryDirectory);
+	const paths = await resolveProjectPaths(ctx.cwd, config.autoMemoryDirectory, config.useProjectMemory);
 	await initializeProjectPaths(paths);
 	return paths;
 }

@@ -280,11 +280,29 @@ async function canonicalNamespacePath(path: string): Promise<string> {
 export async function resolveProjectPaths(
 	cwd: string,
 	autoMemoryDirectory: string | null = null,
+	useProjectMemory: boolean = false,
 ): Promise<ProjectPaths> {
 	const projectRoot = await canonicalProjectRoot(cwd);
 	const projectKey = sanitizeProjectKey(projectRoot);
 	const agentMemoryRoot = join(getAgentDir(), "project-memory");
 	const projectsRoot = join(agentMemoryRoot, "projects");
+
+	if (useProjectMemory) {
+		const memoryDir = join(projectRoot, ".pi", "memory");
+		const memoryNamespace = namespaceHash(memoryDir);
+		const sharedDir = join(agentMemoryRoot, "memory-roots", memoryNamespace);
+		const baseDir = join(projectRoot, ".pi", "memory-state");
+		return {
+			projectRoot,
+			projectKey,
+			baseDir,
+			memoryDir,
+			stateFile: join(baseDir, "state.json"),
+			dreamStateFile: join(sharedDir, "state.json"),
+			locksDir: join(sharedDir, "locks"),
+		};
+	}
+
 	const compatibleBaseDir = join(projectsRoot, projectKey);
 	const preHashBaseDir = join(projectsRoot, `${projectKey}-${namespaceHash(projectRoot)}`);
 	// Migrate the short-lived always-hashed layout before reserving the ordinary
