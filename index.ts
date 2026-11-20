@@ -19,6 +19,7 @@ import {
 	emptyUsage,
 	modelReference,
 	type ParentMemoryContext,
+	type ReviewedChildRunResult,
 	resolveRoleModel,
 	runChildAgent,
 	type SelectorHistoryEntry,
@@ -41,6 +42,10 @@ import {
 	recalledMemoryBudgetContent,
 	staleMemoryWarning,
 } from "./src/prompts.ts";
+import {
+ acceptReviewProposals, listReviewProposals, readReviewProposal, recoverReviewStore,
+ rejectReviewProposal, reviewChanges, reviewStoreDirectory, type ReviewProposal,
+} from "./src/review-store.ts";
 import { sanitizeMemoryText } from "./src/sanitize.ts";
 import { probeShell, type ShellAvailability, shellStatusLine } from "./src/shell.ts";
 import {
@@ -109,6 +114,8 @@ interface RuntimeState {
 	getCodemode: () => ChildCodemodeOptions | undefined;
 	/** Directory configuration is pinned for the whole session, including disabled periods. */
 	sessionMemoryDirectory: string | null;
+ sessionUseProjectMemory: boolean;
+ sessionProjectMemoryDirectory: string;
 	/** Undefined while the global enabled gate is off. No memory directory is resolved or created in that state. */
 	paths?: ProjectPaths;
 	generation: number;
@@ -181,7 +188,7 @@ export default function projectMemoryExtension(pi: ExtensionAPI) {
 		return renderMemoryMessage(message, { ...options, outputPad: pi.getSettings().outputPad ?? 1 }, theme);
 	});
 
-	pi.on("session_start", async (_event, ctx) => {
+	pi.on("session_start", async (event, ctx) => {
 		runtime?.maintenanceStatus?.dispose();
 		runtime?.prefetch?.controller.abort();
 		blockedByTrust = !ctx.isProjectTrusted();
@@ -191,6 +198,17 @@ export default function projectMemoryExtension(pi: ExtensionAPI) {
 			return;
 		}
 		const config = await loadConfig();
+  const pinKey = `${ctx.cwd}\0${ctx.sessionManager.getSessionId()}`;
+  const pins = sessionDirectoryPins();
+  const pin = event.reason === "reload" ? pins.get(pinKey) : undefined;
+  if (pin) Object.assign(config, pin);
+  else {
+   pins.set(pinKey, {
+    autoMemoryDirectory: config.autoMemoryDirectory, useProjectMemory: config.useProjectMemory,
+    projectMemoryDirectory: config.projectMemoryDirectory,
+   });
+   if (pins.size > 128) { const first = pins.keys().next().value; if (first) pins.delete(first); }
+  }
 		const paths = config.enabled ? await initializeRuntimePaths(ctx, config) : undefined;
 		const recalled = await restoreRecalledPaths(ctx, paths?.memoryDir);
 		runtime = {
@@ -201,6 +219,8 @@ export default function projectMemoryExtension(pi: ExtensionAPI) {
 				return { mode: settings?.mode ?? "on", inlineBudget: settings?.inlineBudget };
 			},
 			sessionMemoryDirectory: config.autoMemoryDirectory,
+   sessionUseProjectMemory: config.useProjectMemory,
+   sessionProjectMemoryDirectory: config.projectMemoryDirectory,
 			paths,
 			generation: 0,
 			cursorEntryId: undefined,
@@ -271,6 +291,7 @@ export default function projectMemoryExtension(pi: ExtensionAPI) {
 		prefetch.promise = (async (): Promise<RecallPrefetchResult> => {
 			try {
 				await preparation;
+    if (await reviewRecoveryRequired(paths)) return { recalls: [] };
 				if (controller.signal.aborted) return { recalls: [] };
 				const recalled = new Map(state.recalled);
 				const topics = await scanTopics(paths.memoryDir);
@@ -329,6 +350,7 @@ export default function projectMemoryExtension(pi: ExtensionAPI) {
 			!ctx.isProjectTrusted()
 		)
 			return undefined;
+		if (state.paths && await reviewRecoveryRequired(state.paths)) return undefined;
 		prefetch.consuming = true;
 		const settledCurrent = await Promise.all(
 			prefetch.result.recalls.map(async (recall) => {
@@ -413,6 +435,12 @@ export default function projectMemoryExtension(pi: ExtensionAPI) {
 			return;
 		}
 		if (!state?.config.enabled || !paths) return;
+  if (await reviewRecoveryRequired(paths)) {
+   cancelRecallPrefetch(state);
+   delete event.systemPromptOptions.sections.auto_memory_index;
+   event.systemPromptOptions.sections.auto_memory = "Memory recall is withheld: an interrupted review application requires explicit /memory recover. Do not read operative memory until recovery completes.";
+   return;
+  }
 		// Custom startup events in Pi 1.2 have no user prompt.
 		let prefetch: RecallPrefetch | undefined;
 		if (event.messageType === "user") {
@@ -435,7 +463,7 @@ export default function projectMemoryExtension(pi: ExtensionAPI) {
 			state.loadedMemoryPaths.add("MEMORY.md");
 			state.staleLoadedMemoryPaths.delete("MEMORY.md");
 		}
-		event.systemPromptOptions.sections.auto_memory = mainMemoryPrompt(paths.memoryDir);
+		event.systemPromptOptions.sections.auto_memory = mainMemoryPrompt(paths.memoryDir, state.config.review.enabled);
 		event.systemPromptOptions.sections.auto_memory_index = state.memoryIndexPrompt;
 
 		if (!prefetch) return updateMessage(drainMemoryUpdates(state));
@@ -510,6 +538,11 @@ export default function projectMemoryExtension(pi: ExtensionAPI) {
 				return { block: true, reason: "Project trust was revoked; project memory file access is denied" };
 			return;
 		}
+  const managedTarget = memoryPathFromToolInput(paths.memoryDir, ctx.cwd, event.input);
+  if (managedTarget && (["read", "write", "edit"].includes(event.toolName)) && await reviewRecoveryRequired(paths))
+   return { block: true, reason: "Interrupted memory review application: run /memory recover before using operative memory" };
+  if (state.config.review.enabled && managedTarget && ["write", "edit"].includes(event.toolName))
+   return { block: true, reason: "Reviewed memory is read-only to parent write/edit. Keep the correction in conversation and ask the user to run /memory extract, then /memory review and /memory accept. Do not bypass with shell." };
 		if (event.toolName === "read") {
 			const filePath = memoryPathFromToolInput(paths.memoryDir, ctx.cwd, event.input);
 			if (!filePath) return;
@@ -705,7 +738,10 @@ export default function projectMemoryExtension(pi: ExtensionAPI) {
 			} catch (error) {
 				return ctx.ui.notify(errorMessage(error), "error");
 			}
-			const deferredDirectoryChange = next.autoMemoryDirectory !== state.sessionMemoryDirectory;
+			const deferredDirectoryChange = next.autoMemoryDirectory !== state.sessionMemoryDirectory ||
+    next.useProjectMemory !== state.sessionUseProjectMemory || next.projectMemoryDirectory !== state.sessionProjectMemoryDirectory;
+   next.useProjectMemory = state.sessionUseProjectMemory;
+   next.projectMemoryDirectory = state.sessionProjectMemoryDirectory;
 			next.autoMemoryDirectory = state.sessionMemoryDirectory;
 			const enabledPaths = !previous.enabled && next.enabled ? await initializeRuntimePaths(ctx, next) : undefined;
 			cancelRecallPrefetch(state);
@@ -734,7 +770,7 @@ export default function projectMemoryExtension(pi: ExtensionAPI) {
 				scheduleIdle(ctx, state);
 			updateMaintenanceStatus(ctx, state);
 			return ctx.ui.notify(
-				`Reloaded ${configPath()}${deferredDirectoryChange ? "; autoMemoryDirectory changes apply after the next session start" : ""}`,
+				`Reloaded ${configPath()}${deferredDirectoryChange ? "; autoMemoryDirectory/useProjectMemory/projectMemoryDirectory changes apply after the next session start" : ""}`,
 				"info",
 			);
 		}
@@ -757,6 +793,83 @@ export default function projectMemoryExtension(pi: ExtensionAPI) {
 				"error",
 			);
 		}
+  const [reviewCommand, ...ids] = command.split(/\s+/);
+  if (["review", "accept", "reject", "recover"].includes(reviewCommand ?? "")) {
+   const paths = state.paths;
+   const identity: OperationIdentity = { paths, generation: state.generation, config: state.config };
+   const assertCurrent = () => {
+    if (runtime !== state || state.shuttingDown || !operationIsCurrent(state, ctx, identity))
+     throw new Error("Memory session/configuration/trust changed; reopen review before applying.");
+   };
+   const refresh = async (proposals: ReviewProposal[]) => {
+    assertCurrent();
+    cancelRecallPrefetch(state);
+    state.memoryIndexPrompt = undefined;
+    state.parentContext = undefined;
+    state.selectorHistory.length = 0;
+    for (const proposal of proposals) {
+     const changed = reviewChanges(proposal);
+     for (const change of changed) state.maintenanceSnapshots.set(change.path, change.after?.hash ?? null);
+     queueMemoryUpdate(state, proposal.provenance.role === "dream" ? "dream" : "extract", changed.map((change) => change.path));
+    }
+    await captureExternalMemoryChanges(state);
+    assertCurrent();
+   };
+   try {
+    assertCurrent();
+    if (reviewCommand === "review") {
+     if (ids.length > 1) throw new Error("Usage: /memory review [id]");
+     if (!ids.length) {
+      const proposals = await listReviewProposals(paths);
+      assertCurrent();
+      const body = proposals.length
+        ? `${proposals.map((p) =>
+           `${p.id} [${p.status}] ${p.provenance.role} ${p.provenance.model ? `${p.provenance.model.provider}/${p.provenance.model.id}` : "unavailable"} (${reviewChanges(p).length} changes)`
+          ).join("\n")}\nInspect: /memory review id`
+        : "No memory review proposals.";
+      ctx.ui.notify(sanitizeMemoryText(body), "info");
+      return;
+     }
+     const id = ids[0];
+     if (!id) throw new Error("Usage: /memory review id");
+     const proposal = await readReviewProposal(paths, id);
+     assertCurrent();
+     ctx.ui.notify(formatReviewInspection(proposal), "info");
+     return;
+    }
+    if (reviewCommand === "reject") {
+     if (ids.length !== 1) throw new Error("Usage: /memory reject id");
+     const id = ids[0];
+     if (!id) throw new Error("Usage: /memory reject id");
+     await rejectReviewProposal(paths, id, "Explicit user command");
+     assertCurrent();
+     return ctx.ui.notify(`Rejected ${ids[0]}`, "info");
+    }
+    if (reviewCommand === "accept" && !ids.length) throw new Error("Usage: /memory accept id [id ...]");
+    if (reviewCommand === "recover" && ids.length) throw new Error("Usage: /memory recover");
+    const proposals = reviewCommand === "accept" ? await Promise.all(ids.map((id) => readReviewProposal(paths, id))) : [];
+    assertCurrent();
+    // Inspection is terminal-only, never an injected model message. Show exact contents before confirmation.
+    for (const proposal of proposals) ctx.ui.notify(formatReviewInspection(proposal), "info");
+    if (ctx.hasUI) {
+     const confirmed = await ctx.ui.confirm(reviewCommand === "recover" ? "Recover interrupted memory application?" : "Accept memory candidates?",
+      "This applies candidates, not verified facts. Recovery rolls forward an earlier explicit acceptance. External-edit conflicts fail closed.");
+     assertCurrent();
+     if (!confirmed) return;
+    }
+    assertCurrent();
+    // assertCurrent is also supplied for newer store implementations; current stores
+    // at least recheck each exposed journal/write/progress checkpoint.
+    const applyOptions = { assertCurrent, onCheckpoint: async () => { assertCurrent(); } };
+    const accepted = reviewCommand === "recover" ? await recoverReviewStore(paths, applyOptions) : await acceptReviewProposals(paths, ids, applyOptions);
+    assertCurrent();
+    await refresh(accepted);
+    ctx.ui.notify(`${reviewCommand === "recover" ? "Recovered" : "Accepted"} ${accepted.length} memory proposal(s).`, "info");
+   } catch (error) {
+    ctx.ui.notify(sanitizeMemoryText(errorMessage(error)), "error");
+   }
+   return;
+  }
 		if (command === "list") {
 			const topics = await scanTopics(state.paths.memoryDir);
 			return ctx.ui.notify(
@@ -778,15 +891,15 @@ export default function projectMemoryExtension(pi: ExtensionAPI) {
 			await trackMaintenance(state, () => maybeDream(ctx, state, true));
 			return;
 		}
-		if (command !== "status") return ctx.ui.notify("Usage: /memory status|list|extract|dream|reload-config", "error");
+		if (command !== "status") return ctx.ui.notify("Usage: /memory status|list|extract|dream|reload-config|review [id]|accept id|reject id|recover", "error");
 		const topics = await scanTopics(state.paths.memoryDir);
 		ctx.ui.notify(memoryStatusLines(state, ctx, topics.length).join("\n"), "info");
 	}
 
 	pi.registerCommand("memory", {
-		description: "Open project memory: browse, search, preview, extract, or dream",
+		description: "Open project memory: browse, extract, dream; review [id], accept id, reject id, recover",
 		getArgumentCompletions: (prefix) =>
-			["status", "list", "extract", "dream", "reload-config"]
+			["status", "list", "extract", "dream", "reload-config", "review", "accept", "reject", "recover"]
 				.filter((command) => command.startsWith(prefix))
 				.map((command) => ({ value: command, label: command })),
 		handler: async (args, ctx) => {
@@ -811,6 +924,7 @@ export default function projectMemoryExtension(pi: ExtensionAPI) {
 					recallBudget: RECALL_BUDGET,
 					topics,
 					overview: [
+      ...(state.config.review.enabled ? ["Review enabled: /memory review [id], accept id, reject id, recover"] : []),
 						shellStatusLine(state.shell),
 						...(state.config.enabled
 							? [
@@ -875,7 +989,7 @@ export default function projectMemoryExtension(pi: ExtensionAPI) {
 }
 
 async function initializeRuntimePaths(ctx: ExtensionContext, config: ProjectMemoryConfig): Promise<ProjectPaths> {
-	const paths = await resolveProjectPaths(ctx.cwd, config.autoMemoryDirectory, config.useProjectMemory);
+	const paths = await resolveProjectPaths(ctx.cwd, config.autoMemoryDirectory, config.useProjectMemory, config.projectMemoryDirectory);
 	await initializeProjectPaths(paths);
 	return paths;
 }
@@ -893,7 +1007,7 @@ async function captureExternalMemoryChanges(state: RuntimeState): Promise<void> 
 
 async function captureExternalMemoryChangesPass(state: RuntimeState): Promise<void> {
 	const paths = state.paths;
-	if (!paths) return;
+	if (!paths || await reviewRecoveryRequired(paths)) return;
 	const currentSnapshot = await snapshotMarkdown(paths.memoryDir, state.turnSnapshot);
 	const changed = diffSnapshots(state.turnSnapshot, currentSnapshot);
 	const externalChanges = changed.filter((path) => {
@@ -1111,7 +1225,7 @@ async function scheduleExtraction(
 ): Promise<"consumed" | "failed"> {
 	const manual = trigger === "manual";
 	const paths = state.paths;
-	if (!paths || !state.config.enabled || (!state.config.extraction.enabled && !manual) || state.shutdownTimedOut)
+	if (!paths || !state.config.enabled || (!state.config.extraction.enabled && !manual) || state.shutdownTimedOut || await reviewRecoveryRequired(paths))
 		return "failed";
 	const identity: OperationIdentity = { generation: state.generation, paths, config: state.config };
 	const inputSerial = state.inputSerial;
@@ -1205,6 +1319,7 @@ async function scheduleExtraction(
 			isCurrentGeneration: () => operationIsCurrent(state, ctx, identity),
 			onUsage: (usage) => addUsage(state.backgroundUsage.extractor, usage),
 			onTouched: (path, hash) => {
+    if (identity.config.review.enabled) return;
 				state.maintenanceSnapshots.set(path, hash);
 				queueMemoryUpdate(state, "extract", [path]);
 			},
@@ -1221,7 +1336,8 @@ async function scheduleExtraction(
 				state.cursorEntryId = leafId;
 				state.turnsSinceExtraction = 0;
 				state.handledDirectWriteEpoch = Math.max(state.handledDirectWriteEpoch, directWriteEpoch);
-				if (result.touchedPaths.length > 0) showMemoryUpdate(ctx, state, "extract");
+				if (result.review) notifyReviewResult(ctx, state, result);
+    else if (result.touchedPaths.length > 0) showMemoryUpdate(ctx, state, "extract");
 				else if (manual && !result.error && ctx.hasUI && !state.panelOpen)
 					ctx.ui.notify("No memory changes needed.", "info");
 				return result;
@@ -1267,6 +1383,7 @@ async function maybeDream(ctx: ExtensionContext, state: RuntimeState, manual: bo
 		return;
 	const identity: OperationIdentity = { generation: state.generation, paths, config: state.config };
 	const parentContext = state.parentContext && { ...state.parentContext, messages: [...state.parentContext.messages] };
+	if (await reviewRecoveryRequired(paths)) return;
 	if (state.activeDream) {
 		if (manual) ctx.ui.notify("Memory dream is already running", "warning");
 		return;
@@ -1338,6 +1455,7 @@ async function maybeDream(ctx: ExtensionContext, state: RuntimeState, manual: bo
 			isCurrentGeneration: () => operationIsCurrent(state, ctx, identity),
 			onUsage: (usage) => addUsage(state.backgroundUsage.dream, usage),
 			onTouched: (path, hash) => {
+    if (identity.config.review.enabled) return;
 				state.maintenanceSnapshots.set(path, hash);
 				queueMemoryUpdate(state, "dream", [path]);
 			},
@@ -1350,7 +1468,8 @@ async function maybeDream(ctx: ExtensionContext, state: RuntimeState, manual: bo
 				if (!operationIsCurrent(state, ctx, identity) || abortController.signal.aborted) return result;
 				state.lastDreamError = result.error;
 				if (result.error) notifyError(ctx, "memory dream", result.error);
-				if (result.touchedPaths.length > 0) showMemoryUpdate(ctx, state, "dream");
+				if (result.review) notifyReviewResult(ctx, state, result);
+    else if (result.touchedPaths.length > 0) showMemoryUpdate(ctx, state, "dream");
 				else if (!result.error && manual && ctx.hasUI && !state.panelOpen)
 					ctx.ui.notify("No memory changes needed.", "info");
 				return result;
@@ -1669,6 +1788,7 @@ function memoryStatusLines(state: RuntimeState, ctx: ExtensionContext, topicCoun
 		`Memory: ${state.paths ? displayPath(state.paths.memoryDir) : "not initialized"}`,
 		...(state.shell ? [shellStatusLine(state.shell)] : []),
 		`Topics: ${topicCount}`,
+  ...(state.config.review.enabled ? ["Review: enabled; /memory review [id] | accept id | reject id | recover"] : []),
 		`Selector: ${modelStatus("selector")} (${state.config.models.selector.structuredOutput ? "native JSON Schema when supported, otherwise same-model schema tool" : "JSON Schema tool"}, ${state.config.models.selector.maxTokens} output tokens)`,
 		`Extractor: ${modelStatus("extractor")}`,
 		`Dream: ${modelStatus("dream")}`,
@@ -1704,4 +1824,45 @@ async function waitWithTimeout<T>(promise: Promise<T>, ms: number): Promise<T | 
 	} finally {
 		clearTimeout(timer);
 	}
+}
+
+/** Detect journals even when review has since been disabled. Never auto-recover. */
+export async function reviewRecoveryRequired(paths: Pick<ProjectPaths, "memoryDir" | "locksDir">): Promise<boolean> {
+ try {
+  await lstat(join(reviewStoreDirectory(paths), "journal.json"));
+  return true;
+ } catch (error) {
+  if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+  throw error;
+ }
+}
+
+function formatReviewInspection(proposal: ReviewProposal): string {
+ const model = proposal.provenance.model;
+ return sanitizeMemoryText([
+  `${proposal.id} [${proposal.status}] ${proposal.provenance.role}`,
+  `Runtime model: ${model ? `${model.provider}/${model.id}` : "unavailable"}`,
+  `Session: ${proposal.provenance.sessionId}; operation: ${proposal.provenance.operationId}`,
+  `Created: ${proposal.createdAt}; baseline: ${proposal.baselineHash}`,
+  `Rationale (${proposal.rationale.attribution}, not verified evidence): ${proposal.rationale.text}`,
+  ...(proposal.error ? [`Error: ${proposal.error}`] : []),
+  ...reviewChanges(proposal).flatMap((change) => [
+   `File: ${change.path}`, "--- BEFORE ---", change.before?.content ?? "(absent)",
+   "--- AFTER ---", change.after?.content ?? "(absent)",
+  ]),
+  "Candidates are not verified facts. /memory accept id applies the entire proposal; /memory reject id discards it from consideration.",
+ ].join("\n")).replaceAll("\t", "    ");
+}
+
+function notifyReviewResult(ctx: ExtensionContext, state: RuntimeState, result: ReviewedChildRunResult): void {
+ if (!result.review || !ctx.hasUI || state.shuttingDown) return;
+ ctx.ui.notify(`Memory candidate ${result.review.proposalId} [${result.review.status}]: ${result.review.changedPaths.length} staged change(s); operative memory unchanged. Inspect with /memory review ${result.review.proposalId}.`, result.review.status === "pending" ? "info" : "warning");
+}
+
+type DirectoryPin = Pick<ProjectMemoryConfig, "autoMemoryDirectory" | "useProjectMemory" | "projectMemoryDirectory">;
+const DIRECTORY_PINS = Symbol.for("pi-project-memory.sessionDirectoryPins");
+function sessionDirectoryPins(): Map<string, DirectoryPin> {
+ const global = globalThis as typeof globalThis & { [DIRECTORY_PINS]?: Map<string, DirectoryPin> };
+ if (!global[DIRECTORY_PINS]) global[DIRECTORY_PINS] = new Map();
+ return global[DIRECTORY_PINS];
 }

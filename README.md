@@ -95,13 +95,17 @@ pi install .
 
 ## Command reference
 
-| Command                       | Purpose                                                                                                                                                                                                     |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/memory` or `/memory status` | Opens the memory panel in the terminal. RPC and other modes retain the text status report.                                                                                                                  |
-| `/memory list`                | Opens Topics in the terminal, with search and preview. Other modes list topic types, paths, and descriptions as text.                                                                                       |
-| `/memory extract`             | Runs memory extraction once right away. It processes conversation that has not been extracted yet. You can run it by hand even when automatic extraction is off in the configuration.                       |
-| `/memory dream`               | Runs memory consolidation and merging once right away. It skips the time interval and session count conditions, but it still requires `dream.enabled` to be `true` in the configuration.                    |
-| `/memory reload-config`       | Reloads the user-level config file. Changes to the model, extraction, and consolidation settings take effect right away. A change to the `autoMemoryDirectory` path takes effect at the next session start. |
+| Command                       | Purpose                                                                                                                                                                                  |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/memory` or `/memory status` | Opens the memory panel in the terminal. RPC and other modes retain the text status report.                                                                                               |
+| `/memory list`                | Opens Topics in the terminal, with search and preview. Other modes list topic types, paths, and descriptions as text.                                                                    |
+| `/memory extract`             | Runs memory extraction once right away. It processes conversation that has not been extracted yet. You can run it by hand even when automatic extraction is off in the configuration.    |
+| `/memory dream`               | Runs memory consolidation and merging once right away. It skips the time interval and session count conditions, but it still requires `dream.enabled` to be `true` in the configuration. |
+| `/memory review [id]`         | Lists proposals, or inspects one proposal's actual changes and provenance.                                                                                                               |
+| `/memory accept <id>`         | Explicitly accepts a pending proposal after confirmation; stale baselines are refused.                                                                                                   |
+| `/memory reject <id>`         | Rejects a pending proposal without changing operative memory.                                                                                                                            |
+| `/memory recover`             | Explicitly resumes an interrupted accepted application; conflicting external edits are preserved.                                                                                        |
+| `/memory reload-config`       | Reloads user-level config. Models, extraction, Dream, and reviewed mode update immediately; storage-root changes wait until the next session start.                                      |
 
 Use Tab to switch views, type to search in Topics, and press Enter to preview. Escape goes back or closes the panel. Subcommands support completion.
 
@@ -124,6 +128,8 @@ The most common settings are listed below:
 
 - `enabled`: The master switch for the extension (default `true`). When it is `false`, the extension is fully disabled. It does not create the memory directory and does not start any background model call.
 - `autoMemoryDirectory`: The directory where memory files are saved (default `null`). It accepts an absolute path or a path that starts with `~/`. You can set it only in the user-level config file. A file inside the project repository cannot override it.
+- `useProjectMemory` and `projectMemoryDirectory`: Set `useProjectMemory: true` to use `<project-root>/.pi/memory/`; set `projectMemoryDirectory: ".em"` to use `.em/memory/` and `.em/memory-state/` instead. Root changes take effect next session and do not move files. This mode overrides `autoMemoryDirectory`.
+- `review.enabled`: Defaults to `false`. Enable it to make extraction and Dream propose changes for explicit user review instead of immediately rewriting recalled memory. See [Reviewed memory](docs/reviewed-memory.md).
 - `models.selector`, `models.extractor`, and `models.dream`: Each sets the model (`model`), thinking level (`thinkingLevel`), and maximum output length (`maxTokens`) for one of the three background tasks: selection, extraction, and consolidation.
 - `extraction`: Controls the automatic extraction switch (`enabled`), how many turns pass between extractions (`everyNTurns`, default `1`), and the number of idle seconds that trigger extraction (`idleFlushSeconds`, default `120`).
 - `dream`: Controls the periodic consolidation switch (`enabled`), the minimum number of hours between runs (`minimumHours`, default `24`), and the number of other sessions that must accumulate (`minimumOtherSessions`, default `5`).
@@ -149,6 +155,7 @@ By default, the extension stores data under `~/.pi/agent/project-memory/`. Each 
 ```
 
 - **The same repository and worktrees share memory**: The extension identifies a project by its main Git checkout. Linked working trees created with `git worktree` automatically share the same project memory.
+- **Reviewed memory is private and opt-in**: Proposals and recoverable revision contents live beside the shared locks under the agent directory, not among recalled topics. Model/session provenance is captured per operation; model-supplied rationale is not a truth certificate. Managed direct writes are blocked in reviewed mode, but shell commands and external editors can bypass that cooperative boundary.
 - **You can view and edit the files directly**: `MEMORY.md` in the `memory/` directory is a short index. The other `.md` files store the individual topic memories. You can view, edit, add, or delete these `.md` files with an editor at any time.
 - **Do not edit the internal state files by hand**: Apart from `config.json` and `memory/*.md`, the other files, such as `.project-root`, `state.json`, and `locks/`, are internal coordination files for the extension. Do not edit them by hand.
 
@@ -193,11 +200,12 @@ Check that the `model` in `~/.pi/agent/project-memory/config.json` is `"inherit"
 
 ### Config changes have no effect
 
-After you save the config, run `/memory reload-config` or restart Pi. If you changed `autoMemoryDirectory`, you must start a new Pi session before the extension switches to the new directory. The extension does not move files from the old directory automatically.
+After you save the config, run `/memory reload-config` or restart Pi. If you changed `autoMemoryDirectory`, `useProjectMemory`, or `projectMemoryDirectory`, start a new Pi session before the extension switches directories. The extension does not move existing files automatically.
 
 ## Documentation
 
 - [Configuration reference and storage structure](docs/configuration.md): Config file location, field-by-field fallback rules, a detailed description of every field, configuration examples, and the complete local storage directory structure and file lifecycle.
+- [Reviewed memory](docs/reviewed-memory.md): Opt-in proposal/review workflow, per-operation provenance, acceptance, failure recovery, and enforcement limits.
 - [Design and security boundaries](docs/design-and-security.md): Threat model, lifecycle and hook flow, permission control for background tools, the read baseline, and the design of cross-process concurrency locks.
 - [Claude Code behavior alignment](docs/claude-code-compatibility.md): The scope of alignment with Claude Code 2.1.296, the basis from static reverse engineering, the prompt baseline rules, and the host adaptation trade-offs. The research materials that this page cites are available only in Chinese.
 - [Development guide](docs/development.md): The local development environment, checks and test commands, the responsibilities of each source module, and the long-term maintenance constraints.

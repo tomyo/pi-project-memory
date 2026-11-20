@@ -19,6 +19,7 @@ import { convertToLlm, type ExtensionContext } from "@earendil-works/pi-coding-a
 import { backgroundToolPrompt, type ChildCodemodeOptions, createChildCodemode } from "./child-codemode.ts";
 import { createChildTools } from "./child-tools.ts";
 import { SELECTOR_SYSTEM_PROMPT, selectorCatalogMessage } from "./prompts.ts";
+import { finalizeReviewProposal, prepareReviewWorkspace, reviewChanges, type ReviewProposal } from "./review-store.ts";
 import { probeShell, type ShellAvailability } from "./shell.ts";
 import type {
 	ChildRunResult,
@@ -504,7 +505,18 @@ export interface ParentMemoryContext {
 	sessionId: string;
 }
 
-export async function runChildAgent(options: {
+export type ReviewedChildRunResult = ChildRunResult & {
+ review?: {
+  proposalId: string;
+  status: ReviewProposal["status"];
+  outcome: ReviewProposal["outcome"];
+  changedPaths: string[];
+  operationId: string;
+  sessionId: string;
+ };
+};
+
+type ChildOptions = {
 	role: "extractor" | "dream";
 	prompt: string;
 	sourceMessages: Message[];
@@ -521,8 +533,76 @@ export async function runChildAgent(options: {
 	ctx: ExtensionContext;
 	/** A probe taken at the start of this run. Omitted callers are probed here. */
 	shell?: ShellAvailability;
+};
+
+export async function runChildAgent(options: ChildOptions): Promise<ReviewedChildRunResult> {
+ if (!options.config.review.enabled) return runUnreviewedChildAgent(options);
+ const { paths, ctx } = options;
+ const operationId = randomUUID();
+ const sessionId = ctx.sessionManager.getSessionId();
+ const workspace = await prepareReviewWorkspace(paths);
+ let runtimeModel: { provider: string; id: string } | null = null;
+ let modelChanged = false;
+ let responseSeen = false;
+ let toolFailed = false;
+ let completed = false;
+ // Parent context contains operative paths. Do not fork its leading system message;
+ // staging rules must be the child's authoritative instructions, not a cache patch.
+ const redirect = (text: string) => text.replaceAll(paths.memoryDir, workspace.memoryDir);
+ const stagingRules = `\n\n# Reviewed memory operation\nThe ONLY writable memory directory is ${JSON.stringify(workspace.memoryDir)}. All earlier memory paths and direct-save instructions are superseded for this run. Resolve memory reads, writes, edits and deletions against this staging directory, never the operative directory. Repository/transcript reads remain read-only. Changes are candidates pending explicit user review, not saved operative facts. End with a brief rationale for your proposed changes; this is model-attributed text, not verified evidence.`;
+ let result: ChildRunResult;
+ try {
+  result = await runUnreviewedChildAgent({
+   ...options,
+   config: { ...options.config, review: { enabled: false } },
+   paths: { ...paths, memoryDir: workspace.memoryDir },
+   prompt: redirect(options.prompt) + stagingRules,
+   systemPrompt: redirect(options.systemPrompt) + stagingRules,
+   parentContext: undefined,
+   onTouched: undefined,
+   onResponse: (response) => {
+    const actual = response.provider && response.model ? { provider: response.provider, id: response.model } : null;
+    if (responseSeen && (!runtimeModel || !actual || actual.provider !== runtimeModel.provider || actual.id !== runtimeModel.id)) modelChanged = true;
+    responseSeen = true;
+    runtimeModel = actual;
+    completed = response.stopReason === "stop" && !response.content.some((block) => block.type === "toolCall");
+   },
+   onToolFailure: () => { toolFailed = true; },
+  });
+ } catch (error) {
+  await finalizeReviewProposal(paths, workspace, {
+   provenance: { operationId, sessionId, role: options.role, model: modelChanged ? null : runtimeModel },
+   outcome: options.signal?.aborted ? "aborted" : "failed",
+   rationale: "",
+   error: error instanceof Error ? error.message : String(error),
+  });
+  throw error;
+ }
+ const aborted = options.signal?.aborted || result.stopReason === "aborted";
+ const incomplete = !completed || result.stopReason !== "stop" || toolFailed || !options.isCurrentGeneration() || !ctx.isProjectTrusted();
+ const error = result.error ?? (incomplete ? `Incomplete reviewed run (${result.stopReason ?? "no response"}, failed tool or stale operation)` : undefined);
+ const proposal = await finalizeReviewProposal(paths, workspace, {
+  provenance: { operationId, sessionId, role: options.role, model: modelChanged ? null : runtimeModel },
+  outcome: aborted ? "aborted" : error ? "failed" : "succeeded",
+  rationale: result.text,
+  ...(error ? { error } : {}),
+ });
+ return {
+  ...result,
+  touchedPaths: [],
+  error,
+  review: {
+   proposalId: proposal.id, status: proposal.status, outcome: proposal.outcome,
+   changedPaths: reviewChanges(proposal).map((change) => change.path), operationId, sessionId,
+  },
+ };
+}
+
+async function runUnreviewedChildAgent(options: ChildOptions & {
+ onResponse?: (response: AssistantMessage) => void;
+ onToolFailure?: () => void;
 }): Promise<ChildRunResult> {
-	const {
+ const {
 		role,
 		prompt,
 		sourceMessages,
@@ -572,6 +652,7 @@ export async function runChildAgent(options: {
 			return undefined;
 		};
 		let nestedCall = 0;
+  const optionsOuterToolFailure = options.onToolFailure;
 		const tools = codemode
 			? createChildCodemode(
 					memoryTools,
@@ -594,7 +675,10 @@ export async function runChildAgent(options: {
 								beforeToolCall,
 								onUpdate: options?.onUpdate,
 							},
-						);
+						).then((outcome) => {
+        if (outcome.isError) optionsOuterToolFailure?.();
+        return outcome;
+       });
 					},
 					scratchDir,
 				)
@@ -647,6 +731,7 @@ export async function runChildAgent(options: {
 				break;
 			}
 			messages.push(last);
+			options.onResponse?.(last);
 			addUsage(usage, last.usage);
 			onUsage?.(last.usage);
 			turns++;
@@ -665,7 +750,8 @@ export async function runChildAgent(options: {
 					}),
 				),
 			);
-			for (const outcome of outcomes)
+			for (const outcome of outcomes) {
+				if (outcome.isError) options.onToolFailure?.();
 				messages.push({
 					role: "toolResult",
 					toolCallId: outcome.toolCall.id,
@@ -677,6 +763,7 @@ export async function runChildAgent(options: {
 					timestamp: Date.now(),
 					...(outcome.durationMs === undefined ? {} : { durationMs: outcome.durationMs }),
 				});
+			}
 		}
 		return {
 			role,

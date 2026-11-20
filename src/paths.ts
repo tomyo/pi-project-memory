@@ -14,6 +14,22 @@ const execFileAsync = promisify(execFile);
 export const VCS_METADATA_DIRECTORIES = [".git", ".hg", ".svn", ".bzr", ".jj", ".sl"] as const;
 const VCS_METADATA_SET = new Set<string>(VCS_METADATA_DIRECTORIES);
 
+/** Accept a portable directory component; invalid config/API input keeps the legacy container. */
+export function normalizeProjectMemoryDirectory(value: unknown): string {
+	if (
+		typeof value !== "string" ||
+		value.length === 0 ||
+		value.length > 255 ||
+		/[^A-Za-z0-9._-]/.test(value) ||
+		value === "." ||
+		value.endsWith(".") ||
+		VCS_METADATA_SET.has(value.toLowerCase()) ||
+		/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(value)
+	)
+		return ".pi";
+	return value;
+}
+
 const WINDOWS_DRIVE = /^[a-zA-Z]:/;
 const WINDOWS_ABSOLUTE_DRIVE = /^[a-zA-Z]:[\\/]/;
 
@@ -281,6 +297,7 @@ export async function resolveProjectPaths(
 	cwd: string,
 	autoMemoryDirectory: string | null = null,
 	useProjectMemory: boolean = false,
+	projectMemoryDirectory: string = ".pi",
 ): Promise<ProjectPaths> {
 	const projectRoot = await canonicalProjectRoot(cwd);
 	const projectKey = sanitizeProjectKey(projectRoot);
@@ -288,10 +305,11 @@ export async function resolveProjectPaths(
 	const projectsRoot = join(agentMemoryRoot, "projects");
 
 	if (useProjectMemory) {
-		const memoryDir = join(projectRoot, ".pi", "memory");
+		const container = normalizeProjectMemoryDirectory(projectMemoryDirectory);
+		const memoryDir = join(projectRoot, container, "memory");
 		const memoryNamespace = namespaceHash(memoryDir);
 		const sharedDir = join(agentMemoryRoot, "memory-roots", memoryNamespace);
-		const baseDir = join(projectRoot, ".pi", "memory-state");
+		const baseDir = join(projectRoot, container, "memory-state");
 		return {
 			projectRoot,
 			projectKey,
