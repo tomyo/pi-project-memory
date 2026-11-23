@@ -1,27 +1,24 @@
-# Gates: Reviewed memory and configurable local storage
+# Gates: Untangle reviewed-memory; land provenance
 
-Scope: Add an opt-in reviewed-memory workflow with runtime provenance and recovery, preserving default behavior, plus a validated local storage folder name.
+Scope: Two upstreamable commits: (1) remove reviewed-memory workflow keeping project-local container; (2) add lightweight provenance for maintenance writes.
 
-- [x] G1: Current-code design identifies mutation paths, compatibility constraints, and integration contracts before implementation.
-      EVIDENCE: PLAN.md maps models.ts shared child seam, child-tools.ts atomic writes/deletes, index.ts parent hooks and dispatch, reload/path pinning, private staging, review commands, and cooperative enforcement limits.
+- [x] G1: Removal commit strips review config/staging/commands/guards/store while keeping useProjectMemory + projectMemoryDirectory + validation + session pinning + .em tests; repo no longer tracks generated .pi/.em memory data.
+  CHECK: git log --oneline -2 && git grep -l "review" -- src/ index.ts | head -5
+  EXPECT: /revert: remove reviewed-memory/ and no review feature code in src/index (doc/prompt mentions of the word excluded)
+  EVIDENCE: Commit d6bb01e on top of dc60a09. Stat: src/review-store.ts deleted (-717), tests/review-store.test.ts deleted (-533), index.ts -208, src/models.ts -95, config/types -3 each, README/config.example/docs/configuration cleaned, .gitignore +4 (.em/ and .pi/), generated .pi blobs untracked. rg for "review-store|ReviewProposal|reviewRecoveryRequired|ReviewedChildRunResult|formatReviewInspection|review\.enabled" over non-md files: no matches. Tracked .pi/.em paths: 0. Kept: useProjectMemory/projectMemoryDirectory/normalizeProjectMemoryDirectory, session pinning, tests/config + paths additions.
 
-- [x] G2: Local storage folder configuration defaults to .pi, supports .em, rejects unsafe names, and preserves existing path precedence/session-boundary behavior.
-      EVIDENCE: Config leaf C1/C2 passed: projectMemoryDirectory defaults .pi, validates .em, rejects paths/traversal/.git/unsafe names, preserves session-boundary pinning across reload/disable/enable.
+- [x] G2: Provenance commit records role/at/session/model on maintenance writes (frontmatter) plus append-only provenance.jsonl audit log with rotation; external/unattributed edits stay unattributed.
+  CHECK: node --import=tsx --test tests/provenance.test.ts
+  EXPECT: # fail 0
+  EVIDENCE: Commit dadf9c2: new src/provenance.ts (98 lines) + tests/provenance.test.ts (324 lines, 12 tests, all pass). ToolEnvironment carries {role, sessionId, model}; commitMemory merges provenance frontmatter preserving other keys and body bytes; parent writes stamp role agent; JSONL log at memory-roots root with before/after hashes, best-effort appends, 5 MiB rotation keeping one prior segment; absent provenance = externally edited, never fabricated.
 
-- [x] G3: Reviewed mode keeps extraction/Dream proposals out of operative recall and records runtime operation/session/model provenance, baselines, actual changes, and attributed rationale.
-      EVIDENCE: Integration tests pass: staging isolation, runtime provenance (provider/model/session/operationId), before/after snapshots, attributed rationale captured.
+- [x] G3: Full suite, typecheck, lint green after both commits; default write behavior matches upstream (direct extraction/Dream writes, no proposals, no gates).
+  CHECK: npm test 2>&1 | tail -n 8 && npm run typecheck && npm run lint
+  EXPECT: # fail 0
+  EVIDENCE: Parent re-run after dadf9c2: tests 319, pass 312, fail 0, skipped 7 (Windows-only); typecheck OK; lint OK. (Worker runs agreed: removal leaf 307/300/7/0; provenance leaf 319/312/7/0.)
 
-- [x] G4: Review supports inspect/accept/reject; acceptance detects stale baselines, validates topic/index references, and retains recoverable history including interrupted-application recovery.
-      EVIDENCE: Integration tests pass: review command shows sanitized diff, confirmation required, baseline validation on accept, journal-based recovery with conflict detection, stale proposals rejected.
+- [x] G4: Docs consistent: no review commands/fields in README/configuration docs; provenance documented with authority limits (operations, not truth; unattributed = external).
+  EVIDENCE: dadf9c2 diff: README.md +12/-x Provenance section, docs/configuration.md +8/-x note incl. unknown-config-field tolerance; removal commit stripped all review rows/bullets/sections; rg review-feature patterns over non-md files: no matches.
 
-- [x] G5: Reviewed mode routes managed direct writes through proposals or blocks them with actionable guidance; external changes are detected without inventing authorship; default writes remain compatible.
-      EVIDENCE: Integration tests pass: write/edit to operative memory blocked with extract guidance, external changes detected as baseline conflicts, default mode retains native writes and touchedPaths.
-
-- [x] G6: Regression and integration tests cover incorrect rewrite isolation, correction plus index update, refreshed recall, provenance, stale proposals, and failure recovery; full existing checks pass.
-      EVIDENCE: All 362 repository tests pass (355 pass, 7 skipped). New integration tests cover all required scenarios. Full typecheck and lint pass.
-
-- [x] G7: Configuration and workflow documentation describe authority limits, migration/non-migration, privacy, external-writer limitations, and practical review usage.
-      EVIDENCE: README.md and docs/configuration.md updated with reviewed-memory commands, container naming, authority limits, privacy (private review store beside locks), non-migration, and external-writer limits.
-
-- [x] G8: Adversarial review finds no unresolved blocking defects; final diff excludes pre-existing generated memories and implementation is committed.
-      EVIDENCE: Adversarial reread of store, config, integration, and docs completed. git diff shows only implementation files (no pre-existing .pi/ generated memories). Ready for commit.
+- [x] G5: History clean: exactly two new commits on top of dc60a09; no review-store leftovers in tree; proposals data (outside repo) untouched by commits.
+  EVIDENCE: git log: dc60a09 -> d6bb01e (revert/removal) -> dadf9c2 (provenance). Neither commit touches ~/.pi/agent proposal data (outside repo); worktree clean after planning-record commit.
