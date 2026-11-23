@@ -148,6 +148,8 @@ cp config.example.json ~/.pi/agent/project-memory/config.json
 └── memory-roots/
     └── <memory-root-hash>/
         ├── state.json
+        ├── provenance.jsonl
+        ├── provenance.jsonl.1
         └── locks/
 ```
 
@@ -156,6 +158,14 @@ cp config.example.json ~/.pi/agent/project-memory/config.json
 - **切勿手动修改内部状态文件**：除 `config.json` 和 `memory/*.md` 外，其余如 `.project-root`、`state.json` 和 `locks/` 均为扩展内部协调文件，请勿手动编辑。
 
 完整的目录树、自定义目录影响、状态文件用途和文件生命周期说明请参见[配置参考中的存储路径与目录结构说明](docs/configuration.zh.md#存储路径与目录结构)。
+
+## 来源记录（Provenance）
+
+Extractor、Dream 以及主代理的直接写入/编辑操作都会在主题 frontmatter 中记录最近一次操作的来源：`provenance.role`（`extractor`、`dream` 或 `agent`）、`at`（UTC 时间戳）、`session`，以及实际运行时的 `model`（`provider/id`，未知时省略）。更新会替换该块；其他元数据与正文内容保持不变。已有文件无需迁移。
+
+创建、更新和删除还会向 `<agentDir>/project-memory/memory-roots/<memory-root-hash>/provenance.jsonl` 追加操作细节、相对路径和前后 SHA-256 哈希。该日志是私有状态，即使启用项目本地存储，也不会存入项目本地容器或主题目录。它使用私有文件权限，并在约 5 MiB 时轮转，保留一个前一段落（`provenance.jsonl.1`）。日志记录是尽力而为：日志失败绝不会阻塞记忆写入。删除操作只写日志。
+
+来源记录描述的是操作，而非每条内容的真实性或作者。缺少归属说明意味着内容曾在外部被编辑且未标注；扩展不会编造缺失的归属，也不会回填历史。外部编辑器可能留下旧的操作元数据，因此仅凭该块不能证明文件自那次操作后未再被修改。
 
 ## 模型费用、隐私与安全摘要
 

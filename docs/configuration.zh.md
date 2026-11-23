@@ -49,32 +49,32 @@
 
 下表列出 `config.json` 支持的全部字段、类型、默认值、允许取值范围与单位：
 
-| 字段路径                           | 类型                  | 默认值      | 允许取值与约束                                                                                     | 单位                    | 简要作用                                                        |
-| ---------------------------------- | --------------------- | ----------- | -------------------------------------------------------------------------------------------------- | ----------------------- | --------------------------------------------------------------- |
-| `enabled`                          | `boolean`             | `true`      | `true` 或 `false`（非布尔值回退为 `true`）                                                         | 无                      | 扩展全局总开关；关闭时不解析或创建目录，不运行任何自动任务。    |
-| `autoMemoryDirectory`              | `string \| null`      | `null`      | `null`，或合法的绝对路径 / `~/` 开头路径（空白字符串或非法路径回退默认）                           | 无                      | 覆盖项目默认的 `memory/` 存储目录（仅下次会话启动生效）。       |
+| 字段路径                           | 类型                  | 默认值      | 允许取值与约束                                                                                     | 单位                    | 简要作用                                                                     |
+| ---------------------------------- | --------------------- | ----------- | -------------------------------------------------------------------------------------------------- | ----------------------- | ---------------------------------------------------------------------------- |
+| `enabled`                          | `boolean`             | `true`      | `true` 或 `false`（非布尔值回退为 `true`）                                                         | 无                      | 扩展全局总开关；关闭时不解析或创建目录，不运行任何自动任务。                 |
+| `autoMemoryDirectory`              | `string \| null`      | `null`      | `null`，或合法的绝对路径 / `~/` 开头路径（空白字符串或非法路径回退默认）                           | 无                      | 覆盖项目默认的 `memory/` 存储目录（仅下次会话启动生效）。                    |
 | `useProjectMemory`                 | `boolean`             | `false`     | `true` 或 `false`                                                                                  | 无                      | 将记忆存储在规范项目根目录下；优先于 `autoMemoryDirectory`。仅下次会话生效。 |
-| `projectMemoryDirectory`           | `string`              | `".pi"`     | 单个可移植目录名（非法值回退到 `.pi`）                                                             | 无                      | `memory/` 与 `memory-state/` 的项目本地容器，如 `.memory`。仅下次会话生效。 |
-| `models.selector.model`            | `string`              | `"inherit"` | `"inherit"`，或以第一个 `/` 分隔 `provider` 与非空 `model-id` 的字符串（`model-id` 可含 `/`）      | 无                      | Selector（相关记忆挑选）使用的模型。                            |
-| `models.selector.thinkingLevel`    | `string`              | `"off"`     | `"inherit"` \| `"off"` \| `"minimal"` \| `"low"` \| `"medium"` \| `"high"` \| `"xhigh"` \| `"max"` | 无                      | Selector 的思考预算档位（会自动夹紧到模型支持的最接近档位）。   |
-| `models.selector.maxTokens`        | `"inherit" \| number` | `512`       | `"inherit"` 或 不小于 `64` 的安全整数                                                              | 输出 token              | Selector 单次调用的最大输出 token 数。                          |
-| `models.selector.structuredOutput` | `boolean`             | `true`      | `true` 或 `false`                                                                                  | 无                      | 是否对支持的协议优先使用原生 JSON Schema 输出格式。             |
-| `models.extractor.model`           | `string`              | `"inherit"` | `"inherit"`，或以第一个 `/` 分隔 `provider` 与非空 `model-id` 的字符串（`model-id` 可含 `/`）      | 无                      | Extractor（回合后提取）使用的模型。                             |
-| `models.extractor.thinkingLevel`   | `string`              | `"inherit"` | `"inherit"` \| `"off"` \| `"minimal"` \| `"low"` \| `"medium"` \| `"high"` \| `"xhigh"` \| `"max"` | 无                      | Extractor 的思考预算档位，默认继承主会话。                      |
-| `models.extractor.maxTokens`       | `"inherit" \| number` | `"inherit"` | `"inherit"` 或 不小于 `64` 的安全整数                                                              | 输出 token              | Extractor 单次模型请求的最大输出 token 数。                     |
-| `models.dream.model`               | `string`              | `"inherit"` | `"inherit"`，或以第一个 `/` 分隔 `provider` 与非空 `model-id` 的字符串（`model-id` 可含 `/`）      | 无                      | Dream（定期整理）使用的模型。                                   |
-| `models.dream.thinkingLevel`       | `string`              | `"inherit"` | `"inherit"` \| `"off"` \| `"minimal"` \| `"low"` \| `"medium"` \| `"high"` \| `"xhigh"` \| `"max"` | 无                      | Dream 的思考预算档位，默认继承主会话。                          |
-| `models.dream.maxTokens`           | `"inherit" \| number` | `"inherit"` | `"inherit"` 或 不小于 `64` 的安全整数                                                              | 输出 token              | Dream 单次模型请求的最大输出 token 数。                         |
-| `extraction.enabled`               | `boolean`             | `true`      | `true` 或 `false`                                                                                  | 无                      | 是否开启自动提取（关闭后仍可手动运行 `/memory extract`）。      |
-| `extraction.everyNTurns`           | `number`              | `1`         | 不小于 `1` 的安全整数                                                                              | 正常结束的对话轮次      | 每累积多少个已结束轮次（settled turns）运行一次自动提取。       |
-| `extraction.idleFlushSeconds`      | `number`              | `120`       | 不小于 `0` 的安全整数（`0` 表示禁用空闲提取）                                                      | 秒                      | 轮次未达到 `everyNTurns` 时，空闲多久后自动提取未处理消息。     |
-| `extraction.maxTurns`              | `number`              | `5`         | 不小于 `1` 的安全整数                                                                              | 子 Agent 工具轮次       | Extractor 单次任务允许的最大模型请求与工具调用循环次数。        |
-| `extraction.recentMessages`        | `"inherit" \| number` | `"inherit"` | `"inherit"` 或 不小于 `3` 的安全整数                                                               | `user`/`assistant` 条数 | 每次提供给 extractor 的最近对话消息上限。                       |
-| `dream.enabled`                    | `boolean`             | `true`      | `true` 或 `false`                                                                                  | 无                      | Dream 总开关（关闭后自动整理与手动 `/memory dream` 均不可用）。 |
-| `dream.minimumHours`               | `number`              | `24`        | 不小于 `1` 的安全整数                                                                              | 小时                    | 两次自动整理尝试之间的最短间隔时间。                            |
-| `dream.minimumOtherSessions`       | `number`              | `5`         | 不小于 `1` 的安全整数                                                                              | 会话数（不含当前会话）  | 上次整理尝试后，至少需要有多少个其他项目会话更新过才触发整理。  |
-| `dream.scanThrottleSeconds`        | `number`              | `600`       | 不小于 `0` 的安全整数（`0` 表示不节流）                                                            | 秒                      | 同一进程内满足 `minimumHours` 后扫描会话目录的最短间隔时间。    |
-| `dream.maxTurns`                   | `number`              | `50`        | 不小于 `1` 的安全整数                                                                              | 子 Agent 工具轮次       | Dream 单次任务允许的最大模型请求与工具调用循环次数。            |
+| `projectMemoryDirectory`           | `string`              | `".pi"`     | 单个可移植目录名（非法值回退到 `.pi`）                                                             | 无                      | `memory/` 与 `memory-state/` 的项目本地容器，如 `.em`。仅下次会话生效。      |
+| `models.selector.model`            | `string`              | `"inherit"` | `"inherit"`，或以第一个 `/` 分隔 `provider` 与非空 `model-id` 的字符串（`model-id` 可含 `/`）      | 无                      | Selector（相关记忆挑选）使用的模型。                                         |
+| `models.selector.thinkingLevel`    | `string`              | `"off"`     | `"inherit"` \| `"off"` \| `"minimal"` \| `"low"` \| `"medium"` \| `"high"` \| `"xhigh"` \| `"max"` | 无                      | Selector 的思考预算档位（会自动夹紧到模型支持的最接近档位）。                |
+| `models.selector.maxTokens`        | `"inherit" \| number` | `512`       | `"inherit"` 或 不小于 `64` 的安全整数                                                              | 输出 token              | Selector 单次调用的最大输出 token 数。                                       |
+| `models.selector.structuredOutput` | `boolean`             | `true`      | `true` 或 `false`                                                                                  | 无                      | 是否对支持的协议优先使用原生 JSON Schema 输出格式。                          |
+| `models.extractor.model`           | `string`              | `"inherit"` | `"inherit"`，或以第一个 `/` 分隔 `provider` 与非空 `model-id` 的字符串（`model-id` 可含 `/`）      | 无                      | Extractor（回合后提取）使用的模型。                                          |
+| `models.extractor.thinkingLevel`   | `string`              | `"inherit"` | `"inherit"` \| `"off"` \| `"minimal"` \| `"low"` \| `"medium"` \| `"high"` \| `"xhigh"` \| `"max"` | 无                      | Extractor 的思考预算档位，默认继承主会话。                                   |
+| `models.extractor.maxTokens`       | `"inherit" \| number` | `"inherit"` | `"inherit"` 或 不小于 `64` 的安全整数                                                              | 输出 token              | Extractor 单次模型请求的最大输出 token 数。                                  |
+| `models.dream.model`               | `string`              | `"inherit"` | `"inherit"`，或以第一个 `/` 分隔 `provider` 与非空 `model-id` 的字符串（`model-id` 可含 `/`）      | 无                      | Dream（定期整理）使用的模型。                                                |
+| `models.dream.thinkingLevel`       | `string`              | `"inherit"` | `"inherit"` \| `"off"` \| `"minimal"` \| `"low"` \| `"medium"` \| `"high"` \| `"xhigh"` \| `"max"` | 无                      | Dream 的思考预算档位，默认继承主会话。                                       |
+| `models.dream.maxTokens`           | `"inherit" \| number` | `"inherit"` | `"inherit"` 或 不小于 `64` 的安全整数                                                              | 输出 token              | Dream 单次模型请求的最大输出 token 数。                                      |
+| `extraction.enabled`               | `boolean`             | `true`      | `true` 或 `false`                                                                                  | 无                      | 是否开启自动提取（关闭后仍可手动运行 `/memory extract`）。                   |
+| `extraction.everyNTurns`           | `number`              | `1`         | 不小于 `1` 的安全整数                                                                              | 正常结束的对话轮次      | 每累积多少个已结束轮次（settled turns）运行一次自动提取。                    |
+| `extraction.idleFlushSeconds`      | `number`              | `120`       | 不小于 `0` 的安全整数（`0` 表示禁用空闲提取）                                                      | 秒                      | 轮次未达到 `everyNTurns` 时，空闲多久后自动提取未处理消息。                  |
+| `extraction.maxTurns`              | `number`              | `5`         | 不小于 `1` 的安全整数                                                                              | 子 Agent 工具轮次       | Extractor 单次任务允许的最大模型请求与工具调用循环次数。                     |
+| `extraction.recentMessages`        | `"inherit" \| number` | `"inherit"` | `"inherit"` 或 不小于 `3` 的安全整数                                                               | `user`/`assistant` 条数 | 每次提供给 extractor 的最近对话消息上限。                                    |
+| `dream.enabled`                    | `boolean`             | `true`      | `true` 或 `false`                                                                                  | 无                      | Dream 总开关（关闭后自动整理与手动 `/memory dream` 均不可用）。              |
+| `dream.minimumHours`               | `number`              | `24`        | 不小于 `1` 的安全整数                                                                              | 小时                    | 两次自动整理尝试之间的最短间隔时间。                                         |
+| `dream.minimumOtherSessions`       | `number`              | `5`         | 不小于 `1` 的安全整数                                                                              | 会话数（不含当前会话）  | 上次整理尝试后，至少需要有多少个其他项目会话更新过才触发整理。               |
+| `dream.scanThrottleSeconds`        | `number`              | `600`       | 不小于 `0` 的安全整数（`0` 表示不节流）                                                            | 秒                      | 同一进程内满足 `minimumHours` 后扫描会话目录的最短间隔时间。                 |
+| `dream.maxTurns`                   | `number`              | `50`        | 不小于 `1` 的安全整数                                                                              | 子 Agent 工具轮次       | Dream 单次任务允许的最大模型请求与工具调用循环次数。                         |
 
 ## 各字段详细说明与相互关系
 
@@ -114,11 +114,11 @@
 ```json
 {
   "useProjectMemory": true,
-  "projectMemoryDirectory": ".memory"
+  "projectMemoryDirectory": ".em"
 }
 ```
 
-下次会话启动时即使用 `<canonical-project-root>/.memory/memory/` 与 `.memory/memory-state/`。配置文件本身仍位于 `<agentDir>/project-memory/config.json`。
+下次会话启动时即使用 `<canonical-project-root>/.em/memory/` 与 `.em/memory-state/`。配置文件本身仍位于 `<agentDir>/project-memory/config.json`。
 
 ### 2. 模型配置（`models`）
 
@@ -323,26 +323,32 @@
 
 - **默认目录模式（`autoMemoryDirectory: null`）**：
   - `paths.baseDir` 为 `projects/<namespace>`。
-  - `paths.memoryDir` 为 `projects/<namespace>/memory`。
+  - `paths.emDir` 为 `projects/<namespace>/memory`。
   - `paths.stateFile` 为 `projects/<namespace>/state.json`。
 - **项目本地模式（`useProjectMemory: true`）**：
-  - `paths.memoryDir` 为 `<projectRoot>/<projectMemoryDirectory>/memory`。
+  - `paths.emDir` 为 `<projectRoot>/<projectMemoryDirectory>/memory`。
   - `paths.baseDir` 为 `<projectRoot>/<projectMemoryDirectory>/memory-state`，`.project-root` 与 `state.json` 位于该目录。
   - 该模式优先于 `autoMemoryDirectory`；默认容器为 `.pi`。
   - 共享锁与 Dream 状态仍位于 agent 目录下并按实际记忆根哈希存放，不会放进项目本地的主题目录。
 - **自定义目录模式（`useProjectMemory: false` 且 `autoMemoryDirectory` 为合法路径）**：
-  - `paths.memoryDir` 为展开并规范化后的自定义路径。
-  - 扩展会对 `paths.memoryDir` 解析最深已存在祖先的 `realpath` 并做 NFC 归一化，计算 24 位 SHA-256 得到 `<memory-root-hash>`。
+  - `paths.emDir` 为展开并规范化后的自定义路径。
+  - 扩展会对 `paths.emDir` 解析最深已存在祖先的 `realpath` 并做 NFC 归一化，计算 24 位 SHA-256 得到 `<memory-root-hash>`。
   - `paths.baseDir` 为 `projects/<namespace>/stores/<memory-root-hash>`（初始化时会创建该私有目录）。
   - `paths.stateFile` 为 `projects/<namespace>/stores/<memory-root-hash>/state.json`。
 - **共享协调目录（`memory-roots/<memory-root-hash>/`）**：
-  - 无论使用默认目录还是自定义目录，都会按 `paths.memoryDir` 的规范化真实路径计算 `<memory-root-hash>`，并将：
+  - 无论使用默认目录还是自定义目录，都会按 `paths.emDir` 的规范化真实路径计算 `<memory-root-hash>`，并将：
     - `paths.dreamStateFile` 指向 `memory-roots/<memory-root-hash>/state.json`。
     - `paths.locksDir` 指向 `memory-roots/<memory-root-hash>/locks`。
   - 这意味着：如果你把默认路径显式写进 `autoMemoryDirectory`（或通过符号链接别名指向同一个目录），或者让两个不同项目通过 `autoMemoryDirectory` 挂载同一个共享记忆目录，它们会计算出相同的 `<memory-root-hash>`，从而**自动共享同一套跨进程锁（`locks/`）和同一份 Dream 整理时间戳（`dreamStateFile`）**，不会对同一个记忆目录重复并发运行整理。
 - **三处 `state.json` 路径在当前实现中的具体职责**：
   1. `memory-roots/<memory-root-hash>/state.json`（`paths.dreamStateFile`）：这是当前版本**唯一实际写入**的状态文件，格式为 `{"schemaVersion": 1, "lastDreamAt": <毫秒时间戳>}`。每次 Dream 取得锁并记录尝试时间、或因 fork 异常回滚时间时，都会写入该文件。
   2. `projects/<namespace>/state.json`（默认模式下的 `paths.stateFile`）与 `projects/<namespace>/stores/<memory-root-hash>/state.json`（自定义模式下的 `paths.stateFile`）：在 `readState()` 读取整理状态时，扩展优先读取 `paths.dreamStateFile`；当 `paths.dreamStateFile` 不存在（`ENOENT`）时，会自动回退读取 `paths.stateFile`（并且兼容读取旧字段名 `lastSuccessfulDreamAt`），从而无损继承旧版本的整理时间记录。
+
+### 来源记录（无需配置）
+
+维护性写入会自动在 `provenance` frontmatter 中加盖来源信息：角色（`extractor`、`dream`，或主代理直接写入/编辑时的 `agent`）、UTC 操作时间、会话 ID 以及实际运行时的 `provider/id` 模型；未知模型时省略。最近一次操作会替换该块，不改变其他元数据或正文字节。不会为未触及的文件做迁移或虚构归属。缺少归属说明意味着内容曾在外部被编辑且未标注；不要求外部编辑器维护该块。
+
+尽力而为的审计日志位于 `memory-roots/<memory-root-hash>/locks/` 旁的 `<agentDir>/project-memory/memory-roots/<memory-root-hash>/provenance.jsonl`（`join(paths.locksDir, "..", "provenance.jsonl")`）。即使启用 `useProjectMemory`，它也保留在这个私有区域内，不会进入项目本地容器。每一行 JSON 记录时间、角色、会话、已知时的模型、相对路径、创建/更新/删除动作，以及前后 SHA-256 哈希（文件不存在时为 `null`）。删除只写日志，不添加 frontmatter。日志以 `0600` 权限创建，约 5 MiB 时轮转为单个 `provenance.jsonl.1`（替换前一段落）。失败绝不阻塞或回滚记忆写入；日志不保证完整。来源记录描述的是操作而非事实；旧元数据不能证明其后没有外部编辑。
 
 ### 4. 锁文件、恢复锁与临时文件
 

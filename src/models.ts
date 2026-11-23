@@ -548,6 +548,7 @@ export async function runChildAgent(options: {
 	try {
 		const memoryTools = createChildTools({
 			mode: role,
+			provenance: { role, sessionId: ctx.sessionManager.getSessionId(), model: modelReference(model) },
 			memoryDir: paths.memoryDir,
 			locksDir: paths.locksDir,
 			projectRoot: paths.projectRoot,

@@ -148,6 +148,8 @@ By default, the extension stores data under `~/.pi/agent/project-memory/`. Each 
 └── memory-roots/
     └── <memory-root-hash>/
         ├── state.json
+        ├── provenance.jsonl
+        ├── provenance.jsonl.1
         └── locks/
 ```
 
@@ -156,6 +158,14 @@ By default, the extension stores data under `~/.pi/agent/project-memory/`. Each 
 - **Do not edit the internal state files by hand**: Apart from `config.json` and `memory/*.md`, the other files, such as `.project-root`, `state.json`, and `locks/`, are internal coordination files for the extension. Do not edit them by hand.
 
 For the full directory tree, the effect of a custom directory, the purpose of each state file, and the file lifecycle, see the [storage paths and directory structure section of the configuration reference](docs/configuration.md#storage-paths-and-directory-structure).
+
+## Provenance
+
+Extractor, Dream, and direct main-agent write/edit operations record the last operation in topic frontmatter: `provenance.role` (`extractor`, `dream`, or `agent`), `at` (UTC timestamp), `session`, and the actual runtime `model` (`provider/id`, omitted if unknown). Updates replace this block; other metadata and body content are preserved. Existing files need no migration.
+
+Creates, updates, and deletions also append operation details, relative paths, and before/after SHA-256 hashes to `<agentDir>/project-memory/memory-roots/<memory-root-hash>/provenance.jsonl`. The log is private state, not stored in the project-local container or the topic directory, even with project-local storage. It uses private file permissions and rotates at approximately 5 MiB, keeping one prior segment (`provenance.jsonl.1`). Logging is best-effort: a log failure never blocks a memory write. Deletions are log-only.
+
+Provenance describes operations, not truth or authorship of every statement. Absent attribution means externally edited, unattributed content; the extension never fabricates missing attribution or backfills history. External editors may leave old operation metadata in place, so a block alone does not prove the file has not changed since that operation.
 
 ## Model costs, privacy, and security summary
 

@@ -41,6 +41,7 @@ import {
 	recalledMemoryBudgetContent,
 	staleMemoryWarning,
 } from "./src/prompts.ts";
+import { writeMemoryWithProvenance } from "./src/provenance.ts";
 import { sanitizeMemoryText } from "./src/sanitize.ts";
 import { probeShell, type ShellAvailability, shellStatusLine } from "./src/shell.ts";
 import {
@@ -163,6 +164,7 @@ interface RuntimeState {
 export default function projectMemoryExtension(pi: ExtensionAPI) {
 	let runtime: RuntimeState | undefined;
 	let blockedByTrust = false;
+	const parentWriteBaselines = new Map<string, string | null>();
 	const backgroundUsage = processBackgroundUsage();
 	pi.registerMessageRenderer(RECALL_MESSAGE, renderMemoryMessage);
 	pi.registerMessageRenderer(UPDATE_MESSAGE, renderMemoryMessage);
@@ -184,6 +186,7 @@ export default function projectMemoryExtension(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", async (event, ctx) => {
+		parentWriteBaselines.clear();
 		runtime?.maintenanceStatus?.dispose();
 		runtime?.prefetch?.controller.abort();
 		blockedByTrust = !ctx.isProjectTrusted();
@@ -529,6 +532,14 @@ export default function projectMemoryExtension(pi: ExtensionAPI) {
 				return { block: true, reason: "Project trust was revoked; project memory file access is denied" };
 			return;
 		}
+		if (event.toolName === "write" || event.toolName === "edit") {
+			const filePath = memoryPathFromToolInput(paths.memoryDir, ctx.cwd, event.input);
+			if (!filePath) return;
+			const relativePath = relative(paths.memoryDir, filePath).split(sep).join("/");
+			const snapshot = await snapshotMarkdownFile(paths.memoryDir, relativePath);
+			parentWriteBaselines.set(event.toolCallId, snapshot?.hash ?? null);
+			return;
+		}
 		if (event.toolName === "read") {
 			const filePath = memoryPathFromToolInput(paths.memoryDir, ctx.cwd, event.input);
 			if (!filePath) return;
@@ -542,6 +553,8 @@ export default function projectMemoryExtension(pi: ExtensionAPI) {
 	pi.on("tool_result", async (event, ctx) => {
 		const state = runtime;
 		const paths = state?.paths;
+		const beforeWrite = parentWriteBaselines.get(event.toolCallId);
+		parentWriteBaselines.delete(event.toolCallId);
 		if (!state?.config.enabled || !paths) return;
 		if (event.isError) {
 			if (event.toolName === "read") state.readSnapshots.delete(event.toolCallId);
@@ -578,8 +591,30 @@ export default function projectMemoryExtension(pi: ExtensionAPI) {
 		state.loadedMemoryPaths.add(relativePath);
 		state.staleLoadedMemoryPaths.delete(relativePath);
 		try {
-			const current = await readMarkdownFileSnapshot(paths.memoryDir, relativePath);
+			let current = await readMarkdownFileSnapshot(paths.memoryDir, relativePath);
 			if (!current) return;
+			if (beforeWrite !== undefined && ctx.isProjectTrusted()) {
+				await writeMemoryWithProvenance(
+					filePath,
+					current.snapshot,
+					current.content,
+					{
+						locksDir: paths.locksDir,
+						path: relativePath,
+						baseline: beforeWrite,
+						provenance: {
+							role: "agent",
+							sessionId: ctx.sessionManager.getSessionId(),
+							model: ctx.model ? modelReference(ctx.model) : "",
+						},
+					},
+					() => {
+						if (runtime !== state || !ctx.isProjectTrusted()) throw new Error("Memory write is stale or untrusted");
+					},
+				);
+				current = await readMarkdownFileSnapshot(paths.memoryDir, relativePath);
+				if (!current) return;
+			}
 			state.turnSnapshot.set(relativePath, current.snapshot);
 			const warnings = lintMemoryContent(filePath, current.content, new Set(state.turnSnapshot.keys()));
 			if (warnings.length > 0) {

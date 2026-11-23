@@ -18,7 +18,7 @@ import {
 	supportsSelectorOutputSchema,
 } from "../src/models.ts";
 import { SELECTOR_SYSTEM_PROMPT } from "../src/prompts.ts";
-import { createTempDirectory } from "./helpers.ts";
+import { assertProvenanceContent, createTempDirectory } from "./helpers.ts";
 
 const topics = Array.from({ length: 7 }, (_, index) => ({
 	filename: `topic-${index}.md`,
@@ -683,6 +683,7 @@ test("dream child inherits parent messages and applies cross-model replay saniti
 		sessionDir: "/",
 		isCurrentGeneration: () => true,
 		ctx: {
+			sessionManager: { getSessionId: () => "child-model-session" },
 			cwd: "/",
 			model: faux.getModel(),
 			isProjectTrusted: () => true,
@@ -743,6 +744,7 @@ test("child runs pass the parent cwd to tools instead of the canonical project r
 			},
 			isCurrentGeneration: () => true,
 			ctx: {
+				sessionManager: { getSessionId: () => "child-model-session" },
 				cwd,
 				model: faux.getModel(),
 				isProjectTrusted: () => true,
@@ -751,7 +753,7 @@ test("child runs pass the parent cwd to tools instead of the canonical project r
 		});
 		assert.equal(result.error, undefined);
 		assert.deepEqual(result.touchedPaths, [`${role}.md`]);
-		assert.equal(await readFile(target, "utf8"), "saved fact\n");
+		assertProvenanceContent(await readFile(target, "utf8"), "saved fact\n");
 	}
 });
 
@@ -787,6 +789,7 @@ test("child maxTurns executes final-turn tools without another model request", a
 		},
 		isCurrentGeneration: () => true,
 		ctx: {
+			sessionManager: { getSessionId: () => "child-model-session" },
 			cwd: projectRoot,
 			model,
 			isProjectTrusted: () => true,
@@ -799,7 +802,7 @@ test("child maxTurns executes final-turn tools without another model request", a
 	assert.equal(result.stopReason, "toolUse");
 	assert.equal(result.error, undefined);
 	assert.ok(result.usage.totalTokens > 0);
-	assert.equal(await readFile(target, "utf8"), "saved fact");
+	assertProvenanceContent(await readFile(target, "utf8"), "saved fact");
 });
 
 test("child loop executes complete tool calls with a non-error stop reason", async (t) => {
@@ -828,6 +831,7 @@ test("child loop executes complete tool calls with a non-error stop reason", asy
 		paths: { projectRoot, projectKey: "test", baseDir: root, memoryDir, stateFile: join(root, "state.json"), locksDir },
 		isCurrentGeneration: () => true,
 		ctx: {
+			sessionManager: { getSessionId: () => "child-model-session" },
 			cwd: projectRoot,
 			model: faux.getModel(),
 			isProjectTrusted: () => true,
@@ -865,6 +869,7 @@ test("child API failures remain explicit for cursor-owning callers", async () =>
 		},
 		isCurrentGeneration: () => true,
 		ctx: {
+			sessionManager: { getSessionId: () => "child-model-session" },
 			cwd: "/",
 			model,
 			isProjectTrusted: () => true,

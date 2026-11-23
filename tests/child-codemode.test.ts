@@ -9,7 +9,7 @@ import type { ChildCodemodeOptions } from "../src/child-codemode.ts";
 import { DEFAULT_CONFIG } from "../src/config.ts";
 import { runChildAgent } from "../src/models.ts";
 import { probeShell } from "../src/shell.ts";
-import { createToolWorkspace } from "./helpers.ts";
+import { assertProvenanceContent, createToolWorkspace } from "./helpers.ts";
 
 async function workspace(t: TestContext) {
 	const { root, memoryDir, projectRoot, locksDir } = await createToolWorkspace(t, "pi-memory-child-codemode-");
@@ -20,6 +20,7 @@ async function workspace(t: TestContext) {
 		isProjectTrusted: () => true,
 		modelRegistry: { streamSimple: faux.streamSimple },
 		sessionManager: {
+			getSessionId: () => "child-codemode-session",
 			getBranch: () => {
 				throw new Error("Child scripts must not read the parent store");
 			},
@@ -107,8 +108,8 @@ for (const role of ["extractor", "dream"] as const) {
 				isCurrentGeneration: () => true,
 			};
 			const result = await runChildAgent(options);
-			assert.equal(await readFile(topic, "utf8"), "new fact\n");
-			assert.equal(await readFile(output, "utf8"), "saved");
+			assertProvenanceContent(await readFile(topic, "utf8"), "new fact\n");
+			assertProvenanceContent(await readFile(output, "utf8"), "saved");
 			assert.equal(await readFile(outside, "utf8"), "outside\n");
 			assert.deepEqual(result.touchedPaths, ["fact.md", "saved.md"]);
 			faux.setResponses([
@@ -231,7 +232,7 @@ test("aborting a script preserves completed memory writes and stops later calls"
 	});
 	assert.equal(result.stopReason, "aborted");
 	assert.deepEqual(result.touchedPaths, ["saved.md"]);
-	assert.equal(await readFile(saved, "utf8"), "saved");
+	assertProvenanceContent(await readFile(saved, "utf8"), "saved");
 	await assert.rejects(readFile(late));
 });
 
