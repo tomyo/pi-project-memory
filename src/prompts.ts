@@ -106,17 +106,7 @@ A memory that names a specific function, file, or flag is a claim that it existe
 
 A memory that summarizes repo state (activity logs, architecture snapshots) is frozen in time. If the user asks about *recent* or *current* state, prefer \`git log\` or reading the code over recalling the snapshot.`;
 
-export function mainMemoryPrompt(memoryDir: string, reviewed = false): string {
- if (reviewed) return `# auto memory (reviewed)
-
-Operative memory is at ${inlineCodePath(memoryDir)} and is read-only to this agent. Use it as fallible context, not verified fact. Do not write/edit/delete operative memory, including via shell or other tools. When the user asks to remember, correct or forget something, keep that request in the conversation and ask them to run /memory extract (or let automatic extraction propose it). Never announce a candidate as saved. Only the user can run /memory review, /memory accept, /memory reject or /memory recover; do not invoke acceptance through shell or command routing.
-
-${MEMORY_TYPES}${WHAT_NOT_TO_SAVE}
-
-${VERIFY_MEMORY}
-
-${MEMORY_AND_OTHER_PERSISTENCE}
-`;
+export function mainMemoryPrompt(memoryDir: string): string {
 	return `# auto memory
 
 You have a persistent, file-based memory system at \`${memoryDir}\`. This directory already exists — write to it directly with the write tool (do not run mkdir or check for its existence).

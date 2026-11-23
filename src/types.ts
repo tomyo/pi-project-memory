@@ -23,9 +23,6 @@ export interface ProjectMemoryConfig {
 	useProjectMemory: boolean;
 	/** User-global safe single directory component for local memory and state; defaults to .pi. */
 	projectMemoryDirectory: string;
-	review: {
-		enabled: boolean;
-	};
 	models: {
 		selector: SelectorModelConfig;
 		extractor: RoleModelConfig;

@@ -3,9 +3,6 @@
   "autoMemoryDirectory": null,
   "useProjectMemory": false,
   "projectMemoryDirectory": ".pi",
-  "review": {
-    "enabled": false
-  },
   "shellPath": null,
   "models": {
     "selector": {

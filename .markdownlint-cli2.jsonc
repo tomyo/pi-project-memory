@@ -3,5 +3,7 @@
     "default": true,
     "MD013": false
   },
-  "gitignore": true
+  "gitignore": true,
+  // Frozen planning contract; maintained outside the removal leaf.
+  "ignores": ["PLAN-PROVENANCE.md"]
 }

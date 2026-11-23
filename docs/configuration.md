@@ -32,13 +32,15 @@ If the environment variable `PI_CODING_AGENT_DIR` is set, `getAgentDir()` return
   - If `models`, `extraction`, `dream`, or a role config object is not a plain object, that sub-block falls back to its own default values.
   - Each field is validated independently. A field falls back to its built-in default only when it is missing, has the wrong type, has an invalid format, or is outside the allowed integer range. Other valid sibling fields in the same object are not affected. Unknown extra fields are ignored.
 
+Unknown config fields are ignored, so stale `review.enabled` keys are harmless.
+
 ### 3. Effective scope of config reload (`/memory reload-config`)
 
 `useProjectMemory` and `projectMemoryDirectory` select project-local storage. Both take effect at the next session start, like `autoMemoryDirectory`; changing them does not migrate existing files.
 
 When you run `/memory reload-config`:
 
-- Changes to `enabled`, `review.enabled`, `models.*`, `extraction.*`, and `dream.*` take effect **immediately**.
+- Changes to `enabled`, `models.*`, `extraction.*`, and `dream.*` take effect **immediately**.
 - If `enabled: true` is kept or set, the extension immediately stops the background extraction or consolidation sub-tasks that are running. It does this by incrementing `generation` and triggering an `AbortController`. It also cancels any prefetch that is waiting and any idle timer.
 - If `enabled` changes from `true` to `false`, the extension stops background tasks. It clears the path references in memory and any pending updates. If `enabled` changes from `false` to `true`, the extension initializes the memory directory with the directory settings that the current session fixed.
 - `autoMemoryDirectory`, `useProjectMemory`, and `projectMemoryDirectory` are fixed at each session start (`session_start`), including when the extension starts disabled. Reloading or disabling/re-enabling the extension does **not** switch the current session to a different storage root. Existing files are not moved. The command tells you when a path change requires a new session.
@@ -53,7 +55,6 @@ The table below lists all fields that `config.json` supports, with their types, 
 | `autoMemoryDirectory`              | `string \| null`      | `null`      | `null`, or a valid absolute path or a path that starts with `~/` (blank strings and invalid paths fall back to the default) | None                                        | Overrides the default `memory/` storage directory of the project. Takes effect only at the next session start.                    |
 | `useProjectMemory`                 | `boolean`             | `false`     | `true` or `false`                                                                                                           | None                                        | Store memory under the canonical project root; overrides `autoMemoryDirectory`. Next session only.                                |
 | `projectMemoryDirectory`           | `string`              | `".pi"`     | One portable directory component; invalid values fall back to `.pi`                                                         | None                                        | Project-local container for `memory/` and `memory-state/`, e.g. `.em`. Next session only.                                         |
-| `review.enabled`                   | `boolean`             | `false`     | `true` or `false`                                                                                                           | None                                        | Extractor and Dream stage proposals instead of modifying operative memory.                                                        |
 | `models.selector.model`            | `string`              | `"inherit"` | `"inherit"`, or a string whose first `/` separates `provider` from a non-empty `model-id` (`model-id` may contain `/`)      | None                                        | Model used by the selector, which picks relevant memories.                                                                        |
 | `models.selector.thinkingLevel`    | `string`              | `"off"`     | `"inherit"` \| `"off"` \| `"minimal"` \| `"low"` \| `"medium"` \| `"high"` \| `"xhigh"` \| `"max"`                          | None                                        | Thinking budget level for the selector, clamped to the model's supported levels.                                                  |
 | `models.selector.maxTokens`        | `"inherit" \| number` | `512`       | `"inherit"`, or A safe integer at least `64`                                                                                | Output tokens                               | Maximum number of output tokens for one selector call.                                                                            |
@@ -106,23 +107,18 @@ The table below lists all fields that `config.json` supports, with their types, 
 - `useProjectMemory` defaults to `false`. When `true`, the canonical project root contains `<projectMemoryDirectory>/memory/` and `<projectMemoryDirectory>/memory-state/`. The default container is `.pi`; `.em` is supported. Both the main checkout and linked Git worktrees use the main checkout's container.
 - Project-local mode takes precedence over `autoMemoryDirectory`. When local mode is off, `projectMemoryDirectory` has no effect.
 - The container must be 1-255 ASCII letters, digits, dots, underscores, or hyphens. Empty names, `.`/`..`, trailing dots, paths/separators, VCS metadata names such as `.git`, and Windows reserved device names are rejected. Invalid values fall back to `.pi` at both configuration parsing and path resolution.
-- No automatic migration occurs. Switching `.pi` to `.em` selects a separate root, state, and private review namespace. To retain existing memory, arrange any manual move while sessions using either root are stopped; keep a backup.
+- No automatic migration occurs. Switching `.pi` to `.em` selects a separate memory root and state. To retain existing memory, arrange any manual move while sessions using either root are stopped; keep a backup.
 
 For example, merge these fields into the **user-level** JSON config (not a project-owned config):
 
 ```json
 {
   "useProjectMemory": true,
-  "projectMemoryDirectory": ".em",
-  "review": { "enabled": true }
+  "projectMemoryDirectory": ".em"
 }
 ```
 
 This uses `<canonical-project-root>/.em/memory/` and `.em/memory-state/` at the next session start. The config file itself remains at `<agentDir>/project-memory/config.json`.
-
-#### `review.enabled`
-
-Defaults to `false`, preserving the existing direct-write workflow. When enabled, background extraction and Dream write private proposals, not recalled memory. Explicit user acceptance applies the grouped topic/index changes with baseline checks and a recovery journal. Managed parent `write`/`edit` operations to operative memory are blocked with guidance; unrestricted shell access and external editors are not an enforcement boundary. Provenance describes operations, not verified truth. See [Reviewed memory](reviewed-memory.md) for commands, recovery, privacy, and limitations.
 
 ### 2. Model settings (`models`)
 
@@ -183,9 +179,6 @@ When the model that the extractor or dream actually resolves to has the same `pr
   "autoMemoryDirectory": null,
   "useProjectMemory": false,
   "projectMemoryDirectory": ".pi",
-  "review": {
-    "enabled": false
-  },
   "models": {
     "selector": {
       "model": "inherit",
@@ -336,7 +329,7 @@ The extension manages the **project namespace** and the actual **memory root** s
   - `paths.memoryDir` is `<projectRoot>/<projectMemoryDirectory>/memory`.
   - `paths.baseDir` is `<projectRoot>/<projectMemoryDirectory>/memory-state`, with `.project-root` and `state.json` there.
   - This mode takes precedence over `autoMemoryDirectory`; its default container is `.pi`.
-  - Shared locks, Dream state, and private reviewed-memory data remain under the agent directory, keyed by the actual memory root. They are not placed in the project-local topic directory.
+  - Shared locks and Dream state remain under the agent directory, keyed by the actual memory root. They are not placed in the project-local topic directory.
 - **Custom directory mode (`useProjectMemory: false` and `autoMemoryDirectory` is a valid path)**:
   - `paths.memoryDir` is the expanded and normalized custom path.
   - The extension resolves the `realpath` of the deepest existing ancestor of `paths.memoryDir`, normalizes it with NFC, and computes a 24-character SHA-256. The result is `<memory-root-hash>`.
@@ -350,8 +343,6 @@ The extension manages the **project namespace** and the actual **memory root** s
 - **The specific roles of the three `state.json` paths in the current implementation**:
   1. `memory-roots/<memory-root-hash>/state.json` (`paths.dreamStateFile`): This is the **only** state file that the current version actually writes. Its format is `{"schemaVersion": 1, "lastDreamAt": <millisecond timestamp>}`. Each time Dream acquires the lock and records an attempt time, or rolls back a time after a fork exception, it writes this file.
   2. `projects/<namespace>/state.json` (`paths.stateFile` in default mode) and `projects/<namespace>/stores/<memory-root-hash>/state.json` (`paths.stateFile` in custom mode): When `readState()` reads the consolidation state, the extension reads `paths.dreamStateFile` first. If `paths.dreamStateFile` does not exist (`ENOENT`), the extension falls back to reading `paths.stateFile`. It also reads the legacy field name `lastSuccessfulDreamAt`. This keeps the consolidation time records of the older version without loss.
-
-With reviewed memory enabled, a private `review/` sibling of `locks/` stores proposal snapshots, operation provenance, staging workspaces, and an application journal when needed. It is excluded from ordinary recall. Proposal/history snapshots may retain sensitive text removed from operative memory; do not publish this directory. See [Reviewed memory](reviewed-memory.md) for its lifecycle and recovery commands.
 
 ### 4. Lock files, recovery locks, and temporary files
 

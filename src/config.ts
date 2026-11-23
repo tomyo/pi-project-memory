@@ -9,7 +9,6 @@ export const DEFAULT_CONFIG: ProjectMemoryConfig = {
 	autoMemoryDirectory: null,
 	useProjectMemory: false,
 	projectMemoryDirectory: ".pi",
-	review: { enabled: false },
 	shellPath: null,
 	models: {
 		selector: { model: "inherit", thinkingLevel: "off", maxTokens: 512, structuredOutput: true },
@@ -93,13 +92,11 @@ export function parseConfig(value: unknown): ProjectMemoryConfig {
 	const models = record(raw.models) ?? {};
 	const extraction = record(raw.extraction) ?? {};
 	const dream = record(raw.dream) ?? {};
-	const review = record(raw.review) ?? {};
 	return {
 		enabled: boolean(raw.enabled, DEFAULT_CONFIG.enabled),
 		autoMemoryDirectory: optionalString(raw.autoMemoryDirectory),
 		useProjectMemory: boolean(raw.useProjectMemory, DEFAULT_CONFIG.useProjectMemory),
 		projectMemoryDirectory: normalizeProjectMemoryDirectory(raw.projectMemoryDirectory),
-		review: { enabled: boolean(review.enabled, DEFAULT_CONFIG.review.enabled) },
 		shellPath: optionalString(raw.shellPath),
 		models: {
 			selector: selectorConfig(models.selector, DEFAULT_CONFIG.models.selector),

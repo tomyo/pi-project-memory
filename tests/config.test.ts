@@ -3,24 +3,24 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { DEFAULT_CONFIG, parseConfig } from "../src/config.ts";
 
-test("parseConfig defaults remain compatible and return independent review objects", () => {
+test("parseConfig defaults remain compatible and return independent nested objects", () => {
 	for (const value of [undefined, null, false, [], "config", {}]) {
 		const config = parseConfig(value);
 		assert.deepEqual(config, DEFAULT_CONFIG);
 		assert.equal(config.useProjectMemory, false);
 		assert.equal(config.projectMemoryDirectory, ".pi");
-		assert.deepEqual(config.review, { enabled: false });
-		config.review.enabled = true;
-		assert.equal(DEFAULT_CONFIG.review.enabled, false);
-		assert.equal(parseConfig(value).review.enabled, false);
+		config.models.selector.model = "test/changed";
+		assert.equal(DEFAULT_CONFIG.models.selector.model, "inherit");
+		assert.equal(parseConfig(value).models.selector.model, "inherit");
 	}
 });
 
-test("parseConfig review is opt-in and only accepts a nested boolean", () => {
-	assert.deepEqual(parseConfig({ review: { enabled: true } }).review, { enabled: true });
-	assert.deepEqual(parseConfig({ review: { enabled: false } }).review, { enabled: false });
-	for (const review of [true, false, null, [], "enabled", {}, { enabled: "true" }, { enabled: 1 }])
-		assert.deepEqual(parseConfig({ review }).review, { enabled: false });
+test("parseConfig ignores unknown fields, including obsolete nested settings", () => {
+	for (const review of [true, false, null, [], {}, { enabled: true }, { enabled: "true" }]) {
+		const config = parseConfig({ review, unknownField: "ignored", projectMemoryDirectory: ".em" });
+		assert.deepEqual(config, { ...DEFAULT_CONFIG, projectMemoryDirectory: ".em" });
+		assert.equal(Object.hasOwn(config, "review"), false);
+	}
 });
 
 test("parseConfig accepts safe project-local container names without enabling local storage", () => {
