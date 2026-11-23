@@ -1,3 +1,6 @@
+import assert from "node:assert/strict";
+import YAML from "yaml";
+import { frontmatterParts } from "../src/store.ts";
 import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
@@ -47,4 +50,17 @@ function leaveWorkingDirectory(directory: string): void {
 	const current = resolve(process.cwd());
 	const inside = relative(target, current);
 	if (inside === "" || (!inside.startsWith("..") && !isAbsolute(inside))) process.chdir(tmpdir());
+}
+
+export function assertProvenanceContent(actual: string, expected: string): void {
+	const parts = frontmatterParts(actual);
+	assert.ok(parts, "Maintenance writes must have frontmatter");
+	const { provenance, ...metadata } = YAML.parse(parts.header);
+	assert.ok(["extractor", "dream", "agent"].includes(provenance.role));
+	assert.equal(new Date(provenance.at).toISOString(), provenance.at);
+	assert.ok(provenance.session);
+	assert.match(provenance.model, /^.+\/.+$/);
+	const original = frontmatterParts(expected);
+	assert.deepEqual(metadata, original ? YAML.parse(original.header) : {});
+	assert.equal(parts.body, original?.body ?? expected);
 }

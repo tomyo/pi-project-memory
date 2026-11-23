@@ -22,15 +22,17 @@ import {
 	resolveToolPath,
 	VCS_METADATA_DIRECTORIES,
 } from "./paths.ts";
+import { appendProvenance, writeMemoryWithProvenance } from "./provenance.ts";
 import { prepareRestrictedBash } from "./restricted-bash.ts";
 import type { ShellAvailability } from "./shell.ts";
-import { atomicWriteIfBaseline, lintMemoryContent, safeDeleteMemoryFile, sameBaseline, sha256 } from "./store.ts";
-import type { ReadBaseline } from "./types.ts";
+import { lintMemoryContent, safeDeleteMemoryFile, sameBaseline, sha256 } from "./store.ts";
+import type { MemoryProvenance, ReadBaseline } from "./types.ts";
 
 export type ChildMode = "extractor" | "dream";
 
 interface ToolEnvironment {
 	mode: ChildMode;
+	provenance?: MemoryProvenance;
 	memoryDir: string;
 	locksDir: string;
 	projectRoot: string;
@@ -187,16 +189,20 @@ export function createChildTools(env: ToolEnvironment): AgentState["tools"] {
 		expected: ReadBaseline | null,
 		content: string,
 		signal?: AbortSignal,
-	): Promise<void> {
-		const written = await atomicWriteIfBaseline(
+	): Promise<string> {
+		const relativePath = relative(await realpath(env.memoryDir), filePath)
+			.split(sep)
+			.join("/");
+		const written = await writeMemoryWithProvenance(
 			filePath,
 			expected,
-			() => content,
-			undefined,
+			content,
+			{ locksDir: env.locksDir, path: relativePath, provenance: env.provenance },
 			() => revalidateWritablePath(env, filePath, signal),
 		);
 		baselines.set(filePath, { ...written, mtimeMs: Date.now() });
 		await markTouched(env, filePath, written.hash);
+		return written.content;
 	}
 
 	const nativeRead = createReadTool(env.cwd, {
@@ -302,7 +308,7 @@ export function createChildTools(env: ToolEnvironment): AgentState["tools"] {
 				});
 				const content = params.content;
 				const nativeResult = await nativeWrite.execute(id, { path: filePath, content }, signal, onUpdate);
-				await commitMemory(filePath, expected, finalContent, signal);
+				finalContent = await commitMemory(filePath, expected, finalContent, signal);
 				const diff = generateDiffString(original ?? "", finalContent);
 				const text =
 					nativeResult.content[0]?.type === "text" ? nativeResult.content[0].text : `Successfully wrote to ${filePath}`;
@@ -349,8 +355,7 @@ export function createChildTools(env: ToolEnvironment): AgentState["tools"] {
 					},
 				});
 				const nativeResult = await nativeEdit.execute(id, { path: filePath, edits: params.edits }, signal, onUpdate);
-				const finalContent = capturedEdit;
-				await commitMemory(filePath, snapshot.baseline, finalContent, signal);
+				const finalContent = await commitMemory(filePath, snapshot.baseline, capturedEdit, signal);
 				const diff = generateDiffString(snapshot.content, finalContent);
 				const nativeText = nativeResult.content[0]?.type === "text" ? nativeResult.content[0].text : "File edited";
 				const staleNotice = staleRecovered
@@ -415,9 +420,28 @@ export function createChildTools(env: ToolEnvironment): AgentState["tools"] {
 							throw error;
 						}
 						const filePath = await resolveWritablePath(env, path, signal, false);
+						const relativePath = relative(await realpath(env.memoryDir), filePath)
+							.split(sep)
+							.join("/");
 						try {
-							await safeDeleteMemoryFile(env.memoryDir, filePath, undefined, undefined, () =>
-								revalidateWritablePath(env, filePath, signal),
+							await safeDeleteMemoryFile(
+								env.memoryDir,
+								filePath,
+								undefined,
+								undefined,
+								() => revalidateWritablePath(env, filePath, signal),
+								env.provenance
+									? async (hash) => {
+											if (!env.provenance) return;
+											await appendProvenance(env.locksDir, env.provenance, {
+												at: new Date().toISOString(),
+												path: relativePath,
+												action: "delete",
+												baseline: hash,
+												result: null,
+											});
+										}
+									: undefined,
 							);
 						} catch (error) {
 							if (!prepared.force || (error as NodeJS.ErrnoException).code !== "ENOENT") throw error;

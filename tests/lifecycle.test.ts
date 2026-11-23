@@ -30,7 +30,7 @@ import projectMemoryExtension from "../index.ts";
 import { resolveProjectPaths } from "../src/paths.ts";
 import { mainMemoryPrompt } from "../src/prompts.ts";
 import { readState } from "../src/store.ts";
-import { createTempDirectory, removeTempDirectory } from "./helpers.ts";
+import { assertProvenanceContent, createTempDirectory, removeTempDirectory } from "./helpers.ts";
 
 type Handler = (event: any, ctx: ExtensionContext) => unknown;
 
@@ -677,7 +677,7 @@ test("maintenance reads current parent codemode activation and mode without chan
 				fauxAssistantMessage("done"),
 			]);
 			await harness.extension.commands.get("memory")?.handler(command, harness.context);
-			assert.equal(await readFile(target, "utf8"), "saved");
+			assertProvenanceContent(await readFile(target, "utf8"), "saved");
 			assert.deepEqual(activeTools, ["read", "codemode"]);
 			activeTools = ["read"];
 			const message = { role: "user", content: "another durable project preference", timestamp: 2 };
@@ -1203,7 +1203,7 @@ test("newer user input preserves local extractor writes and queues the newer tra
 	await harness.extension.emit("message_end", { type: "message_end", message: newerMessage }, harness.context);
 	releaseResponse.resolve();
 	await extraction;
-	assert.equal(await readFile(target, "utf8"), "stale write\n");
+	assertProvenanceContent(await readFile(target, "utf8"), "stale write\n");
 	assert.match(JSON.stringify(trailingMessages.at(-1)), /most recent ~1 messages/);
 	assert.match(JSON.stringify(trailingMessages), /newer durable project fact/);
 	assert.doesNotMatch(JSON.stringify(trailingMessages), /remember this durable project fact/);
@@ -1235,7 +1235,7 @@ test("newer user input preserves dream writes and its cadence reservation", asyn
 	);
 	releaseResponse.resolve();
 	await dream;
-	assert.equal(await readFile(target, "utf8"), "stale dream write\n");
+	assertProvenanceContent(await readFile(target, "utf8"), "stale dream write\n");
 	assert.ok((await readState(harness.paths)).lastDreamAt > 0);
 });
 
@@ -1714,7 +1714,7 @@ test("background updates report changed files and stale loaded memories", async 
 	);
 	releaseWrite.resolve();
 	await extraction;
-	assert.equal(await readFile(topicPath, "utf8"), updated);
+	assertProvenanceContent(await readFile(topicPath, "utf8"), updated);
 	for (let round = 0; round < 2; round++) {
 		await harness.extension.emit("turn_start", {}, harness.context);
 		const context = (await harness.extension.emit("context", { messages: [] }, harness.context)) as any;
@@ -1999,7 +1999,7 @@ test("maintenance forks preserve the parent prefix and cache while executing onl
 		assert.deepEqual(reasoningLevels, ["high", "high", "high"]);
 		assert.ok(usages[0]! > 0, "Fork failed to reuse the Faux provider's parent cache");
 		assert.equal(await readFile(outside, "utf8"), "project source\n");
-		assert.equal(await readFile(target, "utf8"), "saved memory\n");
+		assertProvenanceContent(await readFile(target, "utf8"), "saved memory\n");
 	}
 });
 
@@ -2154,7 +2154,7 @@ test("writes and completed usage survive a later thrown extractor request", asyn
 		};
 	}) as any;
 	await harness.extension.commands.get("memory")?.handler("extract", harness.context);
-	assert.equal(await readFile(target, "utf8"), "landed fact\n");
+	assertProvenanceContent(await readFile(target, "utf8"), "landed fact\n");
 	const next = (await harness.extension.emit(
 		"before_agent_start",
 		{ prompt: "", systemPromptOptions: { sections: {} } },
@@ -2279,7 +2279,7 @@ test("dream writes remain visible after a later thrown request rolls back cadenc
 				}) as any;
 	await harness.extension.commands.get("memory")?.handler("dream", harness.context);
 	assert.equal((await readState(harness.paths)).lastDreamAt, 0);
-	assert.equal(await readFile(target, "utf8"), "landed dream fact\n");
+	assertProvenanceContent(await readFile(target, "utf8"), "landed dream fact\n");
 	const next = (await harness.extension.emit(
 		"before_agent_start",
 		{ prompt: "", systemPromptOptions: { sections: {} } },

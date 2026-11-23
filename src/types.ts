@@ -3,6 +3,13 @@ import type { Usage } from "@earendil-works/pi-ai";
 
 export type MemoryRole = "selector" | "extractor" | "dream";
 
+export interface MemoryProvenance {
+	role: "extractor" | "dream" | "agent";
+	sessionId: string;
+	/** Actual provider/id, or an empty string when unknown. */
+	model: string;
+}
+
 export interface RoleModelConfig {
 	model: "inherit" | `${string}/${string}`;
 	thinkingLevel: ThinkingLevel | "inherit";

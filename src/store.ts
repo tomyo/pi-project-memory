@@ -8,6 +8,7 @@ import {
 	open,
 	readdir,
 	readFile,
+	readlink,
 	realpath,
 	rename,
 	rm,
@@ -151,14 +152,27 @@ function objectOrEmpty(value: unknown): Record<string, unknown> {
 	return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
+export function frontmatterParts(
+	content: string,
+): { header: string; body: string; newline: string; bom: string } | undefined {
+	const opening = /^(\uFEFF?)---(\r?\n)/.exec(content);
+	if (!opening) return undefined;
+	const closing = /^---(?:\r?\n|$)/m.exec(content.slice(opening[0].length));
+	if (!closing) throw new Error("Unterminated memory frontmatter");
+	return {
+		header: content.slice(opening[0].length, opening[0].length + closing.index),
+		body: content.slice(opening[0].length + closing.index + closing[0].length),
+		newline: opening[2] ?? "\n",
+		bom: opening[1] ?? "",
+	};
+}
+
 function parseFrontmatter(head: string): { metadata: Record<string, unknown>; body: string } {
-	if (!head.startsWith("---\n")) return { metadata: {}, body: head };
-	const closing = /\n---(?:\n|$)/.exec(head.slice(4));
-	if (!closing) return { metadata: {}, body: head };
-	const end = 4 + closing.index;
-	const body = head.slice(end + closing[0].length).trimStart();
 	try {
-		const parsed = YAML.parse(head.slice(4, end)) as unknown;
+		const parts = frontmatterParts(head);
+		if (!parts) return { metadata: {}, body: head };
+		const body = parts.body.trimStart();
+		const parsed = YAML.parse(parts.header) as unknown;
 		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { metadata: {}, body };
 		const raw = parsed as Record<string, unknown>;
 		const nested = objectOrEmpty(raw.metadata);
@@ -462,7 +476,11 @@ export async function atomicWriteIfBaseline(
 	update: (current: string | null) => string,
 	lockFile?: string,
 	guard?: () => void | Promise<void>,
-	options?: { allowChangedBaseline?: boolean; onChangedBaseline?: () => void },
+	options?: {
+		allowChangedBaseline?: boolean;
+		onChangedBaseline?: () => void;
+		onCommitted?: (before: ReadBaseline | null, after: ReadBaseline) => void | Promise<void>;
+	},
 ): Promise<ReadBaseline> {
 	await mkdir(dirname(filePath), { recursive: true, mode: 0o700 });
 	const release = lockFile ? await acquireLock(lockFile, 15 * 60_000) : undefined;
@@ -486,7 +504,9 @@ export async function atomicWriteIfBaseline(
 			}
 			if (!(await publishFile(filePath, update(current), guard, currentBaseline === null)))
 				throw new Error(`File was created while the update was staged: ${filePath}. Read it before editing.`);
-			return baseline(filePath);
+			const written = await baseline(filePath);
+			await options?.onCommitted?.(currentBaseline, written);
+			return written;
 		});
 	} finally {
 		await release?.();
@@ -932,6 +952,7 @@ export async function safeDeleteMemoryFile(
 	expected: ReadBaseline | undefined,
 	lockFile?: string,
 	guard?: () => void | Promise<void>,
+	onDeleted?: (hash: string) => void | Promise<void>,
 ): Promise<void> {
 	const [canonicalRoot, canonicalParent] = await Promise.all([realpath(memoryDir), realpath(dirname(filePath))]);
 	const canonicalFile = join(canonicalParent, basename(filePath));
@@ -944,10 +965,18 @@ export async function safeDeleteMemoryFile(
 	try {
 		await guard?.();
 		await withFileMutationQueue(canonicalFile, async () => {
-			if (expected && !sameBaseline(await baseline(canonicalFile), expected))
+			const before = expected
+				? await baseline(canonicalFile)
+				: onDeleted
+					? (await lstat(canonicalFile)).isSymbolicLink()
+						? { hash: sha256(await readlink(canonicalFile)), mtimeMs: 0, size: 0 }
+						: await baseline(canonicalFile)
+					: undefined;
+			if (expected && before && !sameBaseline(before, expected))
 				throw new Error(`File changed since it was read: ${canonicalFile}. Read it again before deleting.`);
 			await guard?.();
 			await rm(canonicalFile);
+			if (before) await onDeleted?.(before.hash);
 		});
 	} finally {
 		await release?.();

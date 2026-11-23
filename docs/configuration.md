@@ -32,7 +32,7 @@ If the environment variable `PI_CODING_AGENT_DIR` is set, `getAgentDir()` return
   - If `models`, `extraction`, `dream`, or a role config object is not a plain object, that sub-block falls back to its own default values.
   - Each field is validated independently. A field falls back to its built-in default only when it is missing, has the wrong type, has an invalid format, or is outside the allowed integer range. Other valid sibling fields in the same object are not affected. Unknown extra fields are ignored.
 
-Unknown config fields are ignored, so stale `review.enabled` keys are harmless.
+Unknown config fields are ignored.
 
 ### 3. Effective scope of config reload (`/memory reload-config`)
 
@@ -343,6 +343,12 @@ The extension manages the **project namespace** and the actual **memory root** s
 - **The specific roles of the three `state.json` paths in the current implementation**:
   1. `memory-roots/<memory-root-hash>/state.json` (`paths.dreamStateFile`): This is the **only** state file that the current version actually writes. Its format is `{"schemaVersion": 1, "lastDreamAt": <millisecond timestamp>}`. Each time Dream acquires the lock and records an attempt time, or rolls back a time after a fork exception, it writes this file.
   2. `projects/<namespace>/state.json` (`paths.stateFile` in default mode) and `projects/<namespace>/stores/<memory-root-hash>/state.json` (`paths.stateFile` in custom mode): When `readState()` reads the consolidation state, the extension reads `paths.dreamStateFile` first. If `paths.dreamStateFile` does not exist (`ENOENT`), the extension falls back to reading `paths.stateFile`. It also reads the legacy field name `lastSuccessfulDreamAt`. This keeps the consolidation time records of the older version without loss.
+
+### Provenance (no configuration required)
+
+Maintenance writes automatically stamp `provenance` frontmatter with the role (`extractor`, `dream`, or `agent` for direct main-agent write/edit), UTC operation time, session ID, and actual runtime `provider/id` model; unknown models are omitted. The last operation replaces the block without changing other metadata or body bytes. No migration or attribution is invented for untouched files. Absence means externally edited, unattributed content; external editors are not required to maintain this block.
+
+The best-effort audit log is `<agentDir>/project-memory/memory-roots/<memory-root-hash>/provenance.jsonl`, beside `locks/` (`join(paths.locksDir, "..", "provenance.jsonl")`). It remains in this private area, not `.em`, even when `useProjectMemory` is enabled. Each JSON line records time, role, session, model when known, relative path, create/update/delete action, and before/after SHA-256 hashes (`null` for a missing file). Deletes only log, never add frontmatter. The log is created with permissions `0600` and rotates at approximately 5 MiB to a single `provenance.jsonl.1`, replacing the previous segment. Failures never block or roll back memory writes; the log is not guaranteed to be complete. Provenance describes operations, not truth; old metadata does not prove there have been no subsequent external edits.
 
 ### 4. Lock files, recovery locks, and temporary files
 
