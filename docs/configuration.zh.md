@@ -323,20 +323,20 @@
 
 - **默认目录模式（`autoMemoryDirectory: null`）**：
   - `paths.baseDir` 为 `projects/<namespace>`。
-  - `paths.emDir` 为 `projects/<namespace>/memory`。
+  - `paths.memoryDir` 为 `projects/<namespace>/memory`。
   - `paths.stateFile` 为 `projects/<namespace>/state.json`。
 - **项目本地模式（`useProjectMemory: true`）**：
-  - `paths.emDir` 为 `<projectRoot>/<projectMemoryDirectory>/memory`。
+  - `paths.memoryDir` 为 `<projectRoot>/<projectMemoryDirectory>/memory`。
   - `paths.baseDir` 为 `<projectRoot>/<projectMemoryDirectory>/memory-state`，`.project-root` 与 `state.json` 位于该目录。
   - 该模式优先于 `autoMemoryDirectory`；默认容器为 `.pi`。
   - 共享锁与 Dream 状态仍位于 agent 目录下并按实际记忆根哈希存放，不会放进项目本地的主题目录。
 - **自定义目录模式（`useProjectMemory: false` 且 `autoMemoryDirectory` 为合法路径）**：
-  - `paths.emDir` 为展开并规范化后的自定义路径。
-  - 扩展会对 `paths.emDir` 解析最深已存在祖先的 `realpath` 并做 NFC 归一化，计算 24 位 SHA-256 得到 `<memory-root-hash>`。
+  - `paths.memoryDir` 为展开并规范化后的自定义路径。
+  - 扩展会对 `paths.memoryDir` 解析最深已存在祖先的 `realpath` 并做 NFC 归一化，计算 24 位 SHA-256 得到 `<memory-root-hash>`。
   - `paths.baseDir` 为 `projects/<namespace>/stores/<memory-root-hash>`（初始化时会创建该私有目录）。
   - `paths.stateFile` 为 `projects/<namespace>/stores/<memory-root-hash>/state.json`。
 - **共享协调目录（`memory-roots/<memory-root-hash>/`）**：
-  - 无论使用默认目录还是自定义目录，都会按 `paths.emDir` 的规范化真实路径计算 `<memory-root-hash>`，并将：
+  - 无论使用默认目录还是自定义目录，都会按 `paths.memoryDir` 的规范化真实路径计算 `<memory-root-hash>`，并将：
     - `paths.dreamStateFile` 指向 `memory-roots/<memory-root-hash>/state.json`。
     - `paths.locksDir` 指向 `memory-roots/<memory-root-hash>/locks`。
   - 这意味着：如果你把默认路径显式写进 `autoMemoryDirectory`（或通过符号链接别名指向同一个目录），或者让两个不同项目通过 `autoMemoryDirectory` 挂载同一个共享记忆目录，它们会计算出相同的 `<memory-root-hash>`，从而**自动共享同一套跨进程锁（`locks/`）和同一份 Dream 整理时间戳（`dreamStateFile`）**，不会对同一个记忆目录重复并发运行整理。

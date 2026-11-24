@@ -126,7 +126,7 @@ cp config.example.json ~/.pi/agent/project-memory/config.json
 
 - `enabled`：扩展总开关（默认 `true`）。设为 `false` 时完全停用扩展，不创建记忆目录，也不发起任何后台模型调用。
 - `autoMemoryDirectory`：自定义记忆文件的保存目录（默认 `null`，支持绝对路径或 `~/` 开头的路径）。只能从用户级配置文件设置，项目仓库内的文件无法覆盖它。
-- `useProjectMemory` 与 `projectMemoryDirectory`：设 `useProjectMemory: true` 后，记忆保存到 `<project-root>/.pi/memory/`；再设 `projectMemoryDirectory: ".memory"` 可改用 `.memory/memory/` 与 `.memory/memory-state/`。存储根变更在下次会话启动时生效，不会搬移已有文件；该模式优先于 `autoMemoryDirectory`。
+- `useProjectMemory` 与 `projectMemoryDirectory`：设 `useProjectMemory: true` 后，记忆保存到 `<project-root>/.pi/memory/`；再设 `projectMemoryDirectory: ".em"` 可改用 `.em/memory/` 与 `.em/memory-state/`。存储根变更在下次会话启动时生效，不会搬移已有文件；该模式优先于 `autoMemoryDirectory`。
 - `models.selector`、`models.extractor`、`models.dream`：分别为挑选、提取和整理三个后台任务指定模型（`model`）、思考档位（`thinkingLevel`）和最大输出长度（`maxTokens`）。
 - `extraction`：调整自动提取开关（`enabled`）、每隔多少轮提取一次（`everyNTurns`，默认 `1`）以及空闲触发秒数（`idleFlushSeconds`，默认 `120`）。
 - `dream`：调整定期整理开关（`enabled`）、最短间隔小时数（`minimumHours`，默认 `24`）以及需要累积的其他会话数（`minimumOtherSessions`，默认 `5`）。

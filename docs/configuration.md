@@ -54,7 +54,7 @@ The table below lists all fields that `config.json` supports, with their types, 
 | `enabled`                          | `boolean`             | `true`      | `true` or `false` (non-boolean values fall back to `true`)                                                                  | None                                        | Global switch for the extension. When it is off, directories are not parsed or created, and no automatic task runs.               |
 | `autoMemoryDirectory`              | `string \| null`      | `null`      | `null`, or a valid absolute path or a path that starts with `~/` (blank strings and invalid paths fall back to the default) | None                                        | Overrides the default `memory/` storage directory of the project. Takes effect only at the next session start.                    |
 | `useProjectMemory`                 | `boolean`             | `false`     | `true` or `false`                                                                                                           | None                                        | Store memory under the canonical project root; overrides `autoMemoryDirectory`. Next session only.                                |
-| `projectMemoryDirectory`           | `string`              | `".pi"`     | One portable directory component; invalid values fall back to `.pi`                                                         | None                                        | Project-local container for `memory/` and `memory-state/`, e.g. `.memory`. Next session only.                                         |
+| `projectMemoryDirectory`           | `string`              | `".pi"`     | One portable directory component; invalid values fall back to `.pi`                                                         | None                                        | Project-local container for `memory/` and `memory-state/`, e.g. `.em`. Next session only.                                         |
 | `models.selector.model`            | `string`              | `"inherit"` | `"inherit"`, or a string whose first `/` separates `provider` from a non-empty `model-id` (`model-id` may contain `/`)      | None                                        | Model used by the selector, which picks relevant memories.                                                                        |
 | `models.selector.thinkingLevel`    | `string`              | `"off"`     | `"inherit"` \| `"off"` \| `"minimal"` \| `"low"` \| `"medium"` \| `"high"` \| `"xhigh"` \| `"max"`                          | None                                        | Thinking budget level for the selector, clamped to the model's supported levels.                                                  |
 | `models.selector.maxTokens`        | `"inherit" \| number` | `512`       | `"inherit"`, or A safe integer at least `64`                                                                                | Output tokens                               | Maximum number of output tokens for one selector call.                                                                            |
@@ -114,11 +114,11 @@ For example, merge these fields into the **user-level** JSON config (not a proje
 ```json
 {
   "useProjectMemory": true,
-  "projectMemoryDirectory": ".memory"
+  "projectMemoryDirectory": ".em"
 }
 ```
 
-This uses `<canonical-project-root>/.memory/memory/` and `.memory/memory-state/` at the next session start. The config file itself remains at `<agentDir>/project-memory/config.json`.
+This uses `<canonical-project-root>/.em/memory/` and `.em/memory-state/` at the next session start. The config file itself remains at `<agentDir>/project-memory/config.json`.
 
 ### 2. Model settings (`models`)
 
